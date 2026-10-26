@@ -4,7 +4,7 @@
 
 Windows dient als Arbeitsplatz, Ubuntu unter WSL2 als Build-Umgebung und ein Linux-Gast in QEMU als Testziel. Die Rollen erläutert das [Nachschlagewerk](../../docs/Linux_Kernel_und_Embedded_Linux_Nachschlagewerk.md). Ablage- und Befehlsregeln stehen in der [Repository-Struktur](../../docs/REPOSITORY_STRUCTURE.md).
 
-Diese Anleitung enthält zunächst die vollständige Bestandsaufnahme. Installation, Gast-Image und QEMU-Start werden anhand der ermittelten Architektur und Versionen ergänzt. Sie enthält noch keinen ausführbaren QEMU-Aufbau. Der eigene Kernel-Build folgt in Stufe 2.
+Diese Anleitung enthält die Bestandsaufnahme und den Einstieg in die versionsabhängige Einrichtung der Werkzeuge. Installation, Gast-Image und QEMU-Start werden anhand der ermittelten Architektur und Versionen schrittweise ergänzt und validiert. Sie enthält noch keinen ausführbaren QEMU-Gaststart. Der eigene Kernel-Build folgt in Stufe 2.
 
 Die folgenden Abfragen können bereits vor dem Klonen des Repositorys ausgeführt werden. Sie benötigen keine Administratorrechte und verändern keine Konfiguration. Bei fehlendem Ubuntu oder WSL 1 zunächst diesen Befund klären; Installations- oder Konvertierungsbefehle folgen dann passend zur Umgebung.
 
@@ -97,7 +97,12 @@ if [ -e /dev/kvm ]; then
 else
     printf '%s\n' 'Kein /dev/kvm vorhanden; QEMU mit TCG bleibt möglich.'
 fi
+
+id -nG
+getent group kvm
 ```
+
+Die beiden letzten Befehle zeigen die Gruppen des aktuellen Benutzers und den Eintrag der Gruppe `kvm`. Bei einem `/dev/kvm` mit Eigentümer `root`, Gruppe `kvm` und Modus `crw-rw----` benötigt QEMU normalerweise die Zugehörigkeit zur Gruppe `kvm`. Ein vorhandener Geräteknoten oder passende Rechte beweisen noch nicht, dass verschachtelte Hardwarevirtualisierung funktioniert. Dies prüft erst ein späterer QEMU/KVM-Start.
 
 `gcc` übersetzt C-Code, `make` steuert Build-Abhängigkeiten, `gdb` dient zum Debuggen und `git` verwaltet Quelltext. `qemu-system-*` emuliert eine komplette Maschine; `qemu-img` verwaltet virtuelle Datenträger. QEMU-User-Mode zum Ausführen einzelner fremder Programme wäre für das Booten eines eigenen Kernels nicht ausreichend. Es muss später nur die benötigte Systemarchitektur installiert werden.
 
@@ -105,7 +110,42 @@ fi
 
 Die Ausgaben der Windows-/WSL-Abfragen sowie der Ressourcen-, Werkzeug- und KVM-Prüfung bilden die Grundlage für die Installation. Zusätzlich den freien Platz auf dem Windows-Laufwerk mit der WSL-Distribution feststellen. Eine fehlende QEMU-Installation oder fehlendes KVM ist bei dieser Bestandsaufnahme kein Fehler.
 
+**Umgebung:** Windows · **Shell:** PowerShell · **Arbeitsverzeichnis:** beliebig.
+
+**Voraussetzungen:** Vorhandene, für den Benutzer registrierte WSL-Ubuntu-Distribution. **Ergebnis:** Registrierter Basispfad (zur Laufwerkszuordnung) und freie Kapazität der Windows-Dateisystemlaufwerke. **Erzeugte Dateien:** keine. **Versionierung:** keine.
+
+```powershell
+$ubuntu = Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Lxss' |
+    Get-ItemProperty |
+    Where-Object { $_.DistributionName -eq 'Ubuntu' }
+
+$ubuntu | Select-Object DistributionName, BasePath
+
+Get-PSDrive -PSProvider FileSystem |
+    Select-Object Name,
+        @{Name='Used_GiB';Expression={[math]::Round($_.Used / 1GB, 1)}},
+        @{Name='Free_GiB';Expression={[math]::Round($_.Free / 1GB, 1)}}
+```
+
+Der Basispfad kann je nach Installation oder Import abweichen; bei Bedarf den tatsächlichen VHDX-Speicherort gesondert bestimmen. Die von `df -h` unter Ubuntu angezeigte Kapazität des virtuellen Dateisystems ist nicht gleich dem physisch freien Speicherplatz auf dem Windows-Laufwerk. Beide Grenzen sind für große Builds und Gast-Images relevant.
+
 Ausgaben können für die gemeinsame Auswertung als Text bereitgestellt werden. Individuelle Rechnerdaten und komplette Laufzeitprotokolle gehören nicht in das öffentliche Repository. Spätere automatisch erzeugte Berichte liegen lokal unter `build/reports/`.
+
+## Paketquellen für die Werkzeug-Einrichtung prüfen
+
+**Umgebung:** Ubuntu/WSL2 (Entwicklungs-Host) · **Shell:** Bash · **Arbeitsverzeichnis:** Benutzerverzeichnis (`~`).
+
+**Voraussetzungen:** Abgeschlossene Bestandsaufnahme, Ubuntu mit `apt`, Netzwerkzugang und `sudo`-Berechtigung. Die Architektur bestimmt das notwendige QEMU-Systempaket; auf einem `x86_64`-Host verwenden wir zunächst den x86-Systememulator.
+
+**Erwartetes Ergebnis:** Erfolgreiche Aktualisierung der APT-Paketindizes und installierbare Kandidaten für die benötigten Pakete. `apt update` schreibt Paketmetadaten in den lokalen APT-Cache, installiert aber noch keine Pakete; `apt-cache policy` zeigt nur Informationen an. **Projektdateien / Git-Versionierung:** keine.
+
+```bash
+cd ~
+sudo apt update
+apt-cache policy build-essential gdb qemu-system-x86 qemu-utils
+```
+
+`build-essential` zieht unter Ubuntu unter anderem `gcc` und `make` nach sich. `qemu-system-x86` stellt den Systememulator `qemu-system-x86_64` bereit, `qemu-utils` unter anderem `qemu-img`. Die Pakete werden erst nach Kontrolle der Kandidaten und Paketquellen gezielt installiert. Für andere Architekturen muss die Paketauswahl angepasst werden. Fehlende Kandidaten sind Anlass zur Prüfung der konfigurierten APT-Quellen (insbesondere `universe`), nicht zum ungeprüften Hinzufügen fremder Repositories.
 
 ## Weitere Einrichtung und Abschlusskriterien
 

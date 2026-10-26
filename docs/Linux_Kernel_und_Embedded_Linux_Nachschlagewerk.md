@@ -94,6 +94,16 @@ QEMU läuft als User-Space-Programm in WSL2 und stellt dem Gast eine Maschine mi
 
 **TCG** ist QEMUs Software-Emulation der CPU. **KVM** nutzt unter Linux Hardwarevirtualisierung. KVM kann deutlich schneller sein; seine Nutzbarkeit innerhalb von WSL2 hängt von der Rechner- und WSL-Konfiguration ab. Für den Einstieg ist TCG ein möglicher Weg ohne KVM. Ein vorhandenes `/dev/kvm` ist ein erster Hinweis, aber noch kein erfolgreicher Funktionstest. Wir prüfen einen konkreten QEMU-Start später separat.
 
+`/dev/kvm` ist ein **Character Device**: Über diesen Geräteknoten kann ein User-Space-Prozess mit der KVM-Schnittstelle des Linux-Kernels kommunizieren (unter anderem über `ioctl()`). Bei Zugriffsrechten wie `crw-rw---- root kvm` müssen unprivilegierte QEMU-Prozesse normalerweise zur Gruppe `kvm` gehören. Dabei sind drei Prüfungen zu unterscheiden: Existiert das Gerät? Hat der aktuelle Benutzer Zugriff? Lässt sich ein KVM-beschleunigter Gast tatsächlich starten? Erst die letzte Prüfung belegt die Nutzbarkeit.
+
+### 6.1.1 Ressourcen und virtuelle Datenträger
+
+Die WSL2-VM teilt sich die physischen Ressourcen mit Windows. Ohne abweichende Konfiguration begrenzt WSL2 den VM-Arbeitsspeicher standardmäßig auf ungefähr 50 % des Windows-RAM und stellt standardmäßig die logischen Prozessoren des Hosts bereit. Ein innerhalb von WSL2 gestarteter QEMU-Gast benötigt Speicher aus diesem Budget; Gast-RAM ist nicht zusätzlich vorhandener physischer RAM.
+
+Das Linux-Root-Dateisystem einer WSL2-Distribution liegt üblicherweise in einer virtuellen Festplatte (VHDX). `df -h` zeigt den Dateisystemplatz innerhalb dieses Datenträgers; die virtuelle Maximalgröße ist nicht mit dem tatsächlich verfügbaren Platz des Windows-Laufwerks gleichzusetzen. Insbesondere wenn eine dynamisch wachsende VHDX erweitert wird, benötigt sie weiteren Platz auf dem Windows-Host.
+
+Für die Paketinstallation dient APT als Paketverwaltung der Ubuntu-Entwicklungsumgebung. Paketindizes (`apt update`) und Paketinstallation sind unterschiedliche Schritte. Das Paket `build-essential` bündelt unter anderem C-Compiler und `make`; QEMUs **Systememulator** bootet ein ganzes Gastsystem, während User-Mode-QEMU nur einzelne Fremdarchitektur-Programme ausführt.
+
 ### 6.2 Reihenfolge der Einrichtung
 
 1. Windows-, WSL-, Ubuntu- und Rechnerdaten feststellen.
@@ -123,6 +133,7 @@ Das Repository liegt vorgesehen unter `~/linux-kernel-lab` in WSL2. Gemeinsame W
 
 - [Microsoft: Grundlegende WSL-Befehle](https://learn.microsoft.com/en-us/windows/wsl/basic-commands)
 - [Microsoft: Arbeiten mit Dateisystemen in WSL](https://learn.microsoft.com/en-us/windows/wsl/filesystems)
+- [Microsoft: Erweiterte WSL-Konfiguration und Ressourcengrenzen](https://learn.microsoft.com/en-us/windows/wsl/wsl-config)
 - [QEMU: Systememulation und Beschleuniger](https://www.qemu.org/docs/master/system/introduction.html)
 
 Die Referenzen beschreiben das Werkzeugverhalten. Die Auswahl unserer Lernschritte und der getrennten Testumgebung ist eine didaktische Entscheidung für dieses Projekt.

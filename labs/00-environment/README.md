@@ -615,9 +615,75 @@ Die Existenzprüfung verhindert ein unbeabsichtigtes Überschreiben eines frühe
 
 **Erwartete Prüfpunkte:** `file format: qcow2`, `virtual size: 8 GiB`, deutlich kleinerer anfänglicher tatsächlicher `disk size`-Wert. `qemu-img info` muss ohne Fehler enden. Größe und Dateirechte können je nach QEMU/Dateisystem variieren. **Noch nicht** das Arbeits-Overlay anlegen: Die Basis ist zunächst leer und muss erst installiert, gestartet und qualifiziert werden.
 
+### Verifizierter Stand – leerer Basisdatenträger
+
+Die lokale Ausführung der obenstehenden Kommandos wurde erfolgreich geprüft: `alpine-base.qcow2` hat das Format `qcow2`, die virtuelle Größe `8 GiB (8589934592 bytes)`, die anfängliche tatsächliche Größe `196 KiB`, `corrupt: false` und Dateirechte `0600`. Das Repository wurde per Fast-Forward auf `a47044a` aktualisiert. **Auf der virtuellen Festplatte sind weiterhin keine Partitionen und kein Betriebssystem installiert.**
+
+### Schritt 2 – Live-ISO mit leerem Datenträger starten (Preflight)
+
+Bevor `setup-alpine` den ganzen Gastdatenträger partitioniert, muss `/dev/vda` als **genau die gerade erstellte QCOW2-Datei** identifiziert und das temporär verfügbare Netzwerk geprüft werden. Dieser Preflight benutzt `snapshot=on`: **alle während dieses Gaststarts vorgenommenen Block-Schreibzugriffe werden verworfen**, auch bei einem versehentlich gestarteten Installer. Erst beim folgenden Installationsstart (gesonderter Schritt) entfernen wir diese Option. Nicht die WSL2-Host-Geräte aus der Inventur mit Gastgeräten verwechseln.
+
+**Umgebung:** Ubuntu/WSL2 – Entwicklungs-Host · **Shell:** Bash · **Arbeitsverzeichnis:** `~/linux-kernel-lab/downloads`.
+
+**Voraussetzungen:** Datenträgerformat und Kapazität geprüft; SHA-256-validierte Alpine-ISO vorhanden; KVM erfolgreich getestet. **Erwartetes Ergebnis:** Alpine startet vom ISO, zusätzlich ist das leere virtio-Blockgerät `/dev/vda` sichtbar; QEMU stellt ein eigenes NAT-Netzwerk bereit. **Erzeugte Dateien:** QEMU kann temporäre Snapshot-Dateien anlegen, die beim regulären Beenden verworfen werden. **Git-Versionierung:** keine.
+
+```bash
+cd "$HOME/linux-kernel-lab/downloads"
+
+qemu-system-x86_64 \
+    -machine q35 \
+    -accel kvm \
+    -m 512M \
+    -smp 1 \
+    -boot once=d \
+    -cdrom alpine-virt-3.24.2-x86_64.iso \
+    -drive file="$HOME/linux-kernel-lab/build/images/alpine-base.qcow2",format=qcow2,if=virtio,snapshot=on \
+    -nic user,model=virtio-net-pci \
+    -nographic
+```
+
+`-boot once=d` priorisiert das ISO beim ersten Start. `-drive ... if=virtio` präsentiert das QCOW2-Image als virtuelles Blockgerät, gewöhnlich `/dev/vda`. Mit `snapshot=on` ist der Basisdatenträger für diese Test-Sitzung vor Änderungen geschützt. `-nic user,model=virtio-net-pci` ermöglicht QEMUs unprivilegierte User-Mode-NAT-Vernetzung ohne TAP-Bridge, ohne offene Host-Portweiterleitungen; damit hat der Gast nach Einrichtung von DHCP die Möglichkeit für ausgehende Netzwerkverbindungen. `-nographic` nutzt weiterhin die serielle Konsole.
+
+### Schritt 3 – Datenträgeridentität und Netzwerk im Gast prüfen
+
+**Umgebung:** Alpine-Linux-Live-Gast in QEMU · **Shell:** `ash` · **Benutzer:** `root` · **Arbeitsverzeichnis:** beliebig.
+
+**Voraussetzungen:** Live-ISO gebootet und Root-Anmeldung auf `ttyS0` erfolgreich. **Erwartetes Ergebnis:** `/dev/vda` existiert, `/sys/block/vda/size` liefert `16777216` Sektoren (8 GiB bei 512 Byte/Sektor); eine VirtIO-Netzwerkschnittstelle wie `eth0` ist vorhanden, DHCP kann eine Adresse beziehen und ein HTTPS-Download funktioniert. **Änderungen:** Live-Gast-Netzwerkkonfiguration und temporäre Dateien, keine dauerhaften Änderungen an der QCOW2-Basis. **Git-Versionierung:** keine.
+
+```sh
+cat /proc/partitions
+ls -l /dev/vda
+cat /sys/block/vda/size
+
+ip link show eth0
+ip link set eth0 up
+udhcpc -i eth0 -q -n
+ip -4 addr show eth0
+ip route
+cat /etc/resolv.conf
+
+wget -O /dev/null https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/APKINDEX.tar.gz
+```
+
+Falls `eth0` fehlt oder DHCP/HTTPS fehlschlägt, den genauen Fehlertext dokumentieren; keine beliebigen Konfigurationsänderungen durchführen. ICMP-Ping ist für QEMU-User-Mode-Networking kein ausreichender Konnektivitätsnachweis; wir prüfen gezielt HTTPS zu einer offiziellen Alpine-Paketquelle.
+
+**Umgebung:** Alpine-Gast · **Shell:** `ash`. **Voraussetzung:** Prüfkommandos beendet. **Erwartetes Ergebnis:** geordnetes Herunterfahren, WSL2-Host-Prompt kehrt zurück. **Dateien/Versionierung:** temporäre Snapshot-Änderungen werden verworfen, keine Git-Dateien geändert.
+
+```sh
+poweroff
+```
+
+**Umgebung:** Ubuntu/WSL2 – Entwicklungs-Host · **Shell:** Bash · **Arbeitsverzeichnis:** beliebig. **Voraussetzung:** QEMU beendet. **Erwartetes Ergebnis:** Das Basis-Image ist weiterhin im QCOW2-Format und leer; die reale Größe sollte nahe der vorherigen Baseline liegen. **Dateiänderungen:** keine.
+
+```bash
+qemu-img info "$HOME/linux-kernel-lab/build/images/alpine-base.qcow2"
+```
+
+**Kein** `setup-alpine`, `setup-disk`, `fdisk`, `mkfs` oder `parted` im Preflight ausführen. Die spätere `sys`-Installation ist destruktiv für die gewählte **virtuelle** Zielplatte und wird mit korrektem `vda`-Befund gesondert angeleitet.
+
 ### Weitere Schritte (noch nicht durchgeführt)
 
-1. Installationsstart: Geprüfte Alpine-`virt`-ISO zusammen mit dem leeren Basisdatenträger an QEMU übergeben, den Datenträger im Gast als `/dev/vda` prüfen und die bei `setup-alpine` benötigte temporäre Gast-Netzwerkverbindung gezielt bereitstellen.
+1. Nach erfolgreichem Preflight die Alpine-`virt`-ISO mit demselben Basisdatenträger erneut starten, diesmal **ohne** die nur für die Vorprüfung verwendete Option `snapshot=on`. Bei der Installation wird die QCOW2-Basis dann bewusst verändert.
 2. Alpine im **`sys`-Installationsmodus** auf `/dev/vda` installieren. Vor jeglicher Partitionierung prüfen, dass wirklich nur der neu erzeugte virtuelle Datenträger verwendet wird. Die virtuelle Festplatte darf nicht mit einer WSL- oder Windows-Hostplatte verwechselt werden.
 3. Ohne ISO vom installierten Datenträger booten; Benutzerzugang, Gastkernel, Mounts, Shutdown und erneuten Start qualifizieren.
 4. Gast sauber herunterfahren. Die geprüfte Basis unverändert aufbewahren; ein QCOW2-Overlay mit explizitem Backing-File-Format `qcow2` anlegen und den Gast ausschließlich über dieses Overlay ausführen.

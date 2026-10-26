@@ -150,6 +150,8 @@ Für reproduzierbare Experimente wird die Basis zuerst mit einer dauerhaften Alp
 
 Ein solcher Rücksetzmechanismus betrifft nur virtuelle Blöcke innerhalb der QCOW2-Datenträgerkette. Separat per VirtIO-9P exportierte **Host-Dateien** werden dadurch nicht zurückgesetzt.
 
+Vor der eigentlichen `sys`-Installation ist ein **nichtdestruktiver Preflight** sinnvoll. QEMUs `-drive ...,if=virtio,snapshot=on` gibt die virtuelle Festplatte im Gast typischerweise als `/dev/vda` frei, leitet Schreibvorgänge aber auf eine temporäre Kopie um. Die Basisdatei bleibt unangetastet. `-nic user,model=virtio-net-pci` ergänzt ohne privilegierte Host-TAP-Konfiguration eine virtuelle Netzkarte hinter QEMUs User-Mode-NAT; DHCP/DNS/HTTPS müssen im Alpine-Live-Gast separat geprüft werden. Erst beim späteren Installationsstart **ohne** `snapshot=on` werden die beabsichtigten Änderungen persistent. Der Benutzer muss das Zielgerät vor dem Start von `setup-alpine` beziehungsweise dessen destruktivem `sys`-Modus eindeutig prüfen.
+
 Quellen: [Alpine: Installation in virtueller Maschine](https://wiki.alpinelinux.org/wiki/Installing_Alpine_in_a_virtual_machine), [QEMU: `qemu-img`](https://www.qemu.org/docs/master/tools/qemu-img.html).
 
 ### 6.2 Reihenfolge der Einrichtung

@@ -681,9 +681,117 @@ qemu-img info "$HOME/linux-kernel-lab/build/images/alpine-base.qcow2"
 
 **Kein** `setup-alpine`, `setup-disk`, `fdisk`, `mkfs` oder `parted` im Preflight ausführen. Die spätere `sys`-Installation ist destruktiv für die gewählte **virtuelle** Zielplatte und wird mit korrektem `vda`-Befund gesondert angeleitet.
 
+### Verifizierter Preflight-Befund
+
+Der nichtdestruktive Preflight war erfolgreich:
+
+- Die Alpine-Live-ISO startete erneut mit Kernel `6.18.52-0-virt` auf der seriellen Konsole.
+- Das Gastgerät `/dev/vda` ist vorhanden; `/proc/partitions` meldete `8388608` KiB und `/sys/block/vda/size` meldete `16777216` Sektoren (8 GiB).
+- Die virtuelle Netzwerkschnittstelle `eth0` erhielt per DHCP `10.0.2.15/24`, Standardgateway `10.0.2.2` und DNS `10.0.2.3`.
+- HTTPS zu `https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/APKINDEX.tar.gz` funktionierte.
+- Nach `poweroff` meldete `qemu-img info` weiterhin `qcow2`, virtuelle 8 GiB, tatsächliche 196 KiB und `corrupt: false`.
+
+**Bewertung:** Zielmedium, NAT-Netzwerk und Nichtpersistenz des Preflight-Snapshots sind qualifiziert. Die echte Installation wurde noch **nicht** ausgeführt.
+
+### Schritt 4 – Permanente Systeminstallation auf `/dev/vda`
+
+Die Alpine-Installation erfolgt über den **interaktiven** Installer `setup-alpine`. Die Kontrolle des Zieldatenträgers ist hier die entscheidende Sicherheitsgrenze: Nach Auswahl von `vda` und der Betriebsart `sys` kann der Installer **ohne weitere Sicherheitsrückfrage** mit Partitionierung und Formatierung beginnen. Wir übergeben keine Host-Blockdevices, sondern ausschließlich das zuvor erstellte QCOW2-Image. Keine automatische Installation mit `ERASE_DISKS` oder unbeaufsichtigtem Antwortfile.
+
+#### Installations-VM starten
+
+**Umgebung:** Ubuntu/WSL2 – Entwicklungs-Host · **Shell:** Bash · **Arbeitsverzeichnis:** `~/linux-kernel-lab/downloads`.
+
+**Voraussetzungen:** Erfolgreich protokollierter Preflight, geprüfte Alpine-ISO, Datenträger `build/images/alpine-base.qcow2`, funktionierendes KVM und QEMU-NAT. Vorher verifizieren, dass keine zweite QEMU-Instanz dasselbe Image verwendet. **Erwartetes Ergebnis:** Alpine-Live-ISO mit angeschlossener, jetzt dauerhaft beschreibbarer Festplatte. **Dateiänderungen:** Sobald der Installer im Modus `sys` gestartet wird, verändert sich `build/images/alpine-base.qcow2`. Keine versionierten Dateien.
+
+```bash
+cd "$HOME/linux-kernel-lab/downloads"
+
+qemu-system-x86_64 \
+    -machine q35 \
+    -accel kvm \
+    -m 512M \
+    -smp 1 \
+    -boot once=d \
+    -cdrom alpine-virt-3.24.2-x86_64.iso \
+    -drive file="$HOME/linux-kernel-lab/build/images/alpine-base.qcow2",format=qcow2,if=virtio \
+    -nic user,model=virtio-net-pci \
+    -nographic
+```
+
+**Abweichung zum Preflight:** Kein `snapshot=on`. Alle Änderungen an der virtuellen Festplatte werden jetzt persistent. `-boot once=d` priorisiert zunächst das ISO. Nach der Installation wird später **ohne** `-cdrom` und mit `-boot c` der Datenträger direkt gestartet.
+
+#### Gastgerät unmittelbar vor dem Installer bestätigen
+
+**Umgebung:** Alpine-**Live**-Gast unter QEMU · **Shell:** `ash` · **Benutzer:** `root` · **Arbeitsverzeichnis:** beliebig.
+
+**Voraussetzung:** Erfolgreiche Anmeldung über die serielle Konsole. **Erwartetes Ergebnis:** Immer noch das richtige, leere 8-GiB-VirtIO-Laufwerk. **Dateien:** reine Leseprüfungen; noch keine Änderungen.
+
+```sh
+cat /proc/partitions
+cat /sys/block/vda/size
+```
+
+**Nur** bei `vda` mit `16777216` Sektoren und unverändertem QEMU-Aufruf mit dem erwarteten Image fortfahren. Bei jedem unerwarteten weiteren Datenträger oder Größenwert nicht installieren.
+
+#### Interaktiver Installationsdialog
+
+**Umgebung:** Alpine-**Live**-Gast · **Shell:** `ash` · **Benutzer:** `root`.
+
+**Voraussetzungen:** Der vorherige Zielgerätecheck ist bestanden; HTTPS funktioniert gemäß Preflight. **Erwartetes Ergebnis:** Alpine wird auf dem virtuellen Laufwerk installiert. **Dateiänderungen:** Partitionstabelle, Dateisysteme, Kernel, Pakete, Bootloader und Konfiguration innerhalb des QCOW2-Basis-Images. **Git-Versionierung:** keine.
+
+```sh
+setup-alpine
+```
+
+Die genaue Reihenfolge und Formulierung einzelner Fragen kann zwischen Alpine-Versionen variieren. Folgende Antworten passen zu unserem isolierten, seriellen QEMU-Lab:
+
+| Frage/Thema | Empfehlung |
+|---|---|
+| Keymap | Auf der seriellen Terminalverbindung `none` (Hostterminal übernimmt Tastaturbelegung); falls eine konkrete Auswahl nötig ist, eine passende eigene Belegung. |
+| Hostname | `alpine-lab` |
+| Interface | `eth0` |
+| IP-Konfiguration | `dhcp` |
+| Zusätzliche manuelle Netzkonfiguration | `n` (keine) |
+| DNS-Suchdomain | Leer lassen, sofern gefragt; DNS über DHCP. |
+| Root-Passwort | Ein **eigenes, starkes Passwort** setzen. Weder in Git noch in Chat/Terminal-Logs weitergeben. |
+| Zeitzone | `Europe/Berlin` oder bewusst `UTC`; die Auswahl dokumentieren. |
+| HTTP/FTP-Proxy | `none` |
+| APK-Paketspiegel | Offizielles Alpine-CDN; sofern angeboten `1` bzw. die angezeigte CDN-Option auswählen, kein fremdes Repository. |
+| Regulärer Benutzer | Optional `lab` als normaler Arbeitsbenutzer; administrative Rechte bei Bedarf später gezielt prüfen. |
+| NTP | Vorgeschlagene Standardoption (z. B. BusyBox), wenn angeboten. |
+| SSH-Server | `none`; für diese Stufe nutzen wir weiterhin die serielle Konsole, keine externen Anmeldedienste nötig. |
+| Installationsziel | **Ausschließlich `vda` (8 GiB)**, niemals `sr0` oder ein anderes Laufwerk. |
+| Datenträgermodus | **`sys`** (klassische Installation). Nicht `data`, `lvm` oder `none`. |
+
+**Sicherheitskritische Stelle:** Vor der Bestätigung von `sys` nochmals den vom Installer angezeigten Gerätenamen und die Kapazität prüfen. Diese Auswahl ist **destruktiv für `alpine-base.qcow2`**. Stimmen Zielgerät oder Format nicht mit unserer Planung überein, `Ctrl+C` zum Abbruch verwenden; keine alternative Platte wählen. Auf Nachfrage zum Überschreiben ausschließlich den verifizierten virtuellen Datenträger freigeben.
+
+Wenn der Installer mit Erfolg endet, zunächst **noch im Live-Gast** die Abschlussausgabe prüfen. Keine Anmeldungspasswörter teilen. Mit
+
+```sh
+poweroff
+```
+
+die QEMU-VM sauber herunterfahren. **Noch nicht rebooten**, denn das ISO soll vor dem ersten Start von der Festplatte getrennt werden. Bei Installationsfehlern den Originalwortlaut berichten und den Datenträger nicht automatisch neu formatieren.
+
+#### Basis nach der Installation auf dem Host prüfen
+
+**Umgebung:** Ubuntu/WSL2 – Entwicklungs-Host · **Shell:** Bash · **Arbeitsverzeichnis:** beliebig.
+
+**Voraussetzung:** QEMU wurde mit `poweroff` beendet. **Erwartetes Ergebnis:** Die 8-GiB-QCOW2-Datei ist durch die Installation gewachsen; `qemu-img info` meldet weiterhin `corrupt: false`. **Dateiänderungen:** keine; Git-Arbeitsbaum bleibt unverändert.
+
+```bash
+qemu-img info "$HOME/linux-kernel-lab/build/images/alpine-base.qcow2"
+du -h "$HOME/linux-kernel-lab/build/images/alpine-base.qcow2"
+git -C "$HOME/linux-kernel-lab" status --short --branch
+```
+
+Die Basis wird **erst nach einem separat validierten Boot ohne ISO** als unveränderlicher Ausgangspunkt behandelt. Falls auf der installierten Festplatte die serielle Anmeldung fehlt, zunächst den Bootloader und den seriellen `getty` prüfen und nicht das Image überschreiben. Alpine beschreibt die Konfiguration für Syslinux/Extlinux in [Enable Serial Console on Boot](https://wiki.alpinelinux.org/wiki/Enable_Serial_Console_on_Boot).
+
+Offizielle Referenzen: [Alpine Installation – System Disk Mode](https://wiki.alpinelinux.org/wiki/Installation), [Alpine unter QEMU](https://wiki.alpinelinux.org/wiki/Installing_Alpine_in_a_virtual_machine).
+
 ### Weitere Schritte (noch nicht durchgeführt)
 
-1. Nach erfolgreichem Preflight die Alpine-`virt`-ISO mit demselben Basisdatenträger erneut starten, diesmal **ohne** die nur für die Vorprüfung verwendete Option `snapshot=on`. Bei der Installation wird die QCOW2-Basis dann bewusst verändert.
+1. Nach erfolgreichem Preflight die Alpine-`virt`-ISO mit demselben Basisdatenträger erneut starten, diesmal **ohne** `snapshot=on`, und `setup-alpine` interaktiv mit Ziel `vda`, Modus `sys` ausführen (siehe detaillierte Anleitung oben).
 2. Alpine im **`sys`-Installationsmodus** auf `/dev/vda` installieren. Vor jeglicher Partitionierung prüfen, dass wirklich nur der neu erzeugte virtuelle Datenträger verwendet wird. Die virtuelle Festplatte darf nicht mit einer WSL- oder Windows-Hostplatte verwechselt werden.
 3. Ohne ISO vom installierten Datenträger booten; Benutzerzugang, Gastkernel, Mounts, Shutdown und erneuten Start qualifizieren.
 4. Gast sauber herunterfahren. Die geprüfte Basis unverändert aufbewahren; ein QCOW2-Overlay mit explizitem Backing-File-Format `qcow2` anlegen und den Gast ausschließlich über dieses Overlay ausführen.

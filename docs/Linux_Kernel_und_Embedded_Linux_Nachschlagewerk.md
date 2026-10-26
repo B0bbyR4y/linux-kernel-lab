@@ -120,7 +120,15 @@ Bei einer WSL2-Installation unterscheidet sich ein **Neustart der Ubuntu-Distrib
 
 Bei einem Character-Device-Knoten wie `/dev/kvm` steuern Dateibesitzer, Gruppe und Modus den normalen Dateizugriff. Die Gruppe `kvm` erlaubt bei einem Modus `crw-rw----` den Zugriff für ihre Mitglieder. `id -nG` zeigt die **aktiven Gruppenrechte eines Prozesses**, während `getent group kvm` den konfigurierten Gruppeneintrag liefert. Eine mit `usermod -aG` vorgenommene Änderung wird normalerweise erst in einer neuen Sitzung wirksam.
 
-Der Zugriffstest `[ -r /dev/kvm ] && [ -w /dev/kvm ]` prüft nur Lesen und Schreiben nach den aktuellen Rechten. Der nächste unabhängige Nachweis ist der Start eines QEMU-Prozesses mit KVM-Beschleunigung. Für eine gezielte Diagnose kann QEMU mit `-accel kvm -S -monitor stdio` ohne Gast-Image initialisiert werden; im **QEMU-Monitor** (nicht in einer Linux-Gast-Shell) zeigen `info kvm` und `info accelerators` den Aktivierungszustand an. Ein erfolgreicher Monitor-Test bestätigt die Initialisierung, ein späterer Gast-Boot erst die praktische Ausführbarkeit des Gasts. Keine Berechtigung sollte durch pauschales Öffnen des Geräteknotens für alle Benutzer umgangen werden.
+Der Zugriffstest `[ -r /dev/kvm ] && [ -w /dev/kvm ]` prüft nur Lesen und Schreiben nach den aktuellen Rechten. Der nächste unabhängige Nachweis ist der Start eines QEMU-Prozesses mit KVM-Beschleunigung. Für eine gezielte Diagnose kann QEMU mit `-accel kvm -S -monitor stdio` ohne Gast-Image initialisiert werden; im **QEMU-Monitor** (nicht in einer Linux-Gast-Shell) zeigen `info kvm` und `info accelerators` den Aktivierungszustand an. In einer Ausgabe wie `[kvm] mshv tcg` kennzeichnen die Klammern den aktiven Accelerator. Eine Warnung über das nicht verfügbare CPUID-Merkmal `svm` bezieht sich auf AMDs Virtualisierungserweiterung für die **virtuelle CPU** und bedeutet nicht zwingend, dass KVM als Host-Accelerator deaktiviert ist. Ein erfolgreicher Monitor-Test bestätigt die Initialisierung, ein späterer Gast-Boot erst die praktische Ausführbarkeit des Gasts. Keine Berechtigung sollte durch pauschales Öffnen des Geräteknotens für alle Benutzer umgangen werden.
+
+### 6.1.4 Vom ISO zum Test-Gast
+
+Ein für virtuelle Maschinen vorbereitetes Linux-ISO eignet sich zur isolierten Prüfung von QEMU und der seriellen Konsole, bevor ein eigener Kernel gebaut wird. Die Alpine-Linux-`virt`-Variante ist ein Beispiel für ein solches kleines Gastsystem. Eine **fixierte Release-Version** und ein SHA-256-Abgleich mit dem veröffentlichten Hash machen Downloads überprüfbar und Wiederholungen nachvollziehbar. ISO-Datei und Prüfhash gehören nach `downloads/` außerhalb der Git-Versionierung; nur die Auswahl und die reproduzierbaren Befehle werden dokumentiert.
+
+Die durch `sha256sum -c` festgestellte **Integrität** besagt, dass die Datei mit dem veröffentlichten Hash übereinstimmt; bezieht man beide Dateien vom selben Webserver, liefert dies allein keine unabhängige kryptografische Verifikation der Herkunft. Eine Authentizitätsprüfung setzt einen separat vertrauenswürdig geprüften Signaturschlüssel voraus.
+
+Der Gast-Boot ergänzt eine wichtige Prüfung, die bei QEMUs `-S`-Initialisierung ausbleibt: die vCPU führt jetzt tatsächlich Gast-Anweisungen und schließlich einen eigenen Linux-Kernel aus.
 
 ### 6.2 Reihenfolge der Einrichtung
 

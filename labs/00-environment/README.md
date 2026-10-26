@@ -302,11 +302,55 @@ info accelerators
 quit
 ```
 
-`info kvm` meldet bei funktionierender KVM-Initialisierung sinngemäß `kvm support: enabled`; `info accelerators` zeigt den verwendeten Accelerator. `quit` beendet den QEMU-Prozess. Tritt schon beim Start eine Fehlermeldung auf, diese vollständig dokumentieren und keine unkontrollierten Workarounds an Virtualisierungs- oder Sicherheitskonfigurationen durchführen.
+`info kvm` meldet bei funktionierender KVM-Initialisierung sinngemäß `kvm support: enabled`; `info accelerators` kennzeichnet den aktiven Accelerator in eckigen Klammern, beispielsweise `[kvm] mshv tcg`. `quit` beendet den QEMU-Prozess. Eine Warnung wie `host doesn't support requested feature: CPUID[eax=80000001h].ECX.svm [bit 2]` betrifft das nicht verfügbare Gast-CPU-Merkmal AMD SVM. Ein trotzdem aktives `[kvm]` belegt die erfolgreiche KVM-Initialisierung, nicht die Unterstützung verschachtelter Virtualisierung **innerhalb** des Gasts. Die konkrete CPU-Feature-Konfiguration und die tatsächliche Gast-Ausführung werden beim späteren Boot geprüft; keine nicht unterstützten Features erzwingen. Tritt schon beim Start eine Fehlermeldung auf, diese vollständig dokumentieren und keine unkontrollierten Workarounds an Virtualisierungs- oder Sicherheitskonfigurationen durchführen.
 
 Der positive Test beweist **KVM-Initialisierung**, noch keinen erfolgreichen Linux-Boot und keine längere fehlerfreie vCPU-Ausführung. Erst ein nachfolgender Start eines vorbereiteten Gast-Images kann die gesamte Virtualisierungskette belegen. Wenn KVM nicht funktioniert, kann die geplante QEMU-Lernumgebung stattdessen mit `-accel tcg` betrieben werden, mit erwartbar geringerer Performance.
 
 Referenzen: [QEMU – Invocation](https://www.qemu.org/docs/master/system/invocation.html), [QEMU – Monitor](https://www.qemu.org/docs/master/system/monitor.html).
+
+## Projekt-Checkout und vorbereitetes Gast-Image
+
+Für den ersten realen KVM-Gaststart verwenden wir ein schlankes, bereits gebautes Linux: **Alpine Linux 3.24.2, x86_64, Variante `virt`**. Die Variante ist für virtuelle Maschinen ausgelegt und enthält laut Alpine bereits die Konfiguration der seriellen Konsole. Das ISO ist nur für Stufe 0 vorgesehen; der eigene Kernel-Build wird in Stufe 2 untersucht. Wir fixieren die Versionsnummer und verlinken keine unversionierte `latest`-Datei, damit die Anleitung nachvollziehbar bleibt.
+
+Offizielle Quellen: [Alpine-Releaseverzeichnis](https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64/), [Alpine: serielle Konsole unter QEMU](https://wiki.alpinelinux.org/wiki/Enable_Serial_Console_on_Boot).
+
+### Projektverzeichnis prüfen oder klonen
+
+**Umgebung:** Ubuntu/WSL2 (Entwicklungs-Host) · **Shell:** Bash · **Arbeitsverzeichnis:** Benutzerverzeichnis (`~`). **Voraussetzungen:** Netzwerk, Git und Zugriff auf das Repository. **Erwartetes Ergebnis:** Ein lokaler Repository-Checkout im Linux-Dateisystem. **Erzeugte Dateien:** nur bei noch nicht vorhandenem Checkout: Git-Dateien und versionierte Projektstruktur unter `~/linux-kernel-lab`. **Git-Versionierung:** Das Klonen legt keine neuen Commits an.
+
+```bash
+cd ~
+
+if [ ! -e "$HOME/linux-kernel-lab" ]; then
+    git clone https://github.com/B0bbyR4y/linux-kernel-lab.git "$HOME/linux-kernel-lab"
+fi
+
+git -C "$HOME/linux-kernel-lab" rev-parse --show-toplevel
+git -C "$HOME/linux-kernel-lab" status --short --branch
+git -C "$HOME/linux-kernel-lab" log -1 --format='%h %s'
+```
+
+Existiert das Verzeichnis schon, wird nichts überschrieben und kein automatischer `git pull` durchgeführt. Der Status und der lokale HEAD helfen, bestehende Änderungen vor einer eventuellen Synchronisierung zu erkennen. Bei einem Fehler zuerst diesen Zustand klären, bevor Dateien abgelegt werden.
+
+### ISO und veröffentlichte SHA-256-Prüfsumme herunterladen
+
+**Umgebung:** Ubuntu/WSL2 (Entwicklungs-Host) · **Shell:** Bash · **Arbeitsverzeichnis:** `~/linux-kernel-lab/downloads`. **Voraussetzungen:** Verifizierter Repository-Checkout, Netzwerkzugang, `curl` und `sha256sum`. **Erwartetes Ergebnis:** ISO-Datei sowie dazugehörige Prüfsumme; `sha256sum -c` muss `OK` ausgeben. **Erzeugte Dateien:** zwei nicht versionierte Dateien im ignorierten Verzeichnis `downloads/`. **Git-Versionierung:** keine.
+
+```bash
+mkdir -p "$HOME/linux-kernel-lab/downloads"
+cd "$HOME/linux-kernel-lab/downloads"
+
+BASE_URL="https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86_64"
+IMAGE="alpine-virt-3.24.2-x86_64.iso"
+
+curl --fail --location --retry 3 --output "$IMAGE" "$BASE_URL/$IMAGE" &&
+curl --fail --location --retry 3 --output "$IMAGE.sha256" "$BASE_URL/$IMAGE.sha256" &&
+sha256sum --check "$IMAGE.sha256"
+```
+
+Die SHA-256-Prüfung gleicht das heruntergeladene ISO mit der vom Projekt publizierten Prüfsumme ab und erkennt Übertragungsfehler oder abweichende Dateien. Sie ist **keine unabhängige Authentizitätsprüfung** der Herausgeberidentität, da ISO und Hash über denselben Server bezogen werden. Für höhere Anforderungen wäre zusätzlich eine vertrauenswürdig geprüfte Signatur nötig. Bei Prüfsummenfehler nicht booten.
+
+Das ISO wird nicht in Git eingecheckt. Ein erster QEMU-Gaststart mit aktiv laufender vCPU, Kernel-Meldungen und Gast-Shell wird als separater nächster Schritt dokumentiert und überprüft.
 
 ## Weitere Einrichtung und Abschlusskriterien
 

@@ -475,7 +475,7 @@ qemu-system-x86_64 \
     -nographic
 ```
 
-`-virtfs` stellt ein VirtIO-9P-Gerät mit dem Tag `labshare` bereit; `readonly=on` schützt die freigegebenen Hostdateien vor Schreibzugriffen des Gasts. Der Gastkernel benötigt Unterstützung für das 9P-Dateisystem und den VirtIO-9P-Transport. Das Vorhandensein dieser Unterstützung ist im konkret gestarteten Alpine-Kernel noch zu prüfen.
+`-virtfs` stellt ein VirtIO-9P-Gerät mit dem Tag `labshare` bereit; `readonly=on` schützt die freigegebenen Hostdateien vor Schreibzugriffen des Gasts. Der Gastkernel benötigt Unterstützung für das 9P-Dateisystem und den VirtIO-9P-Transport. **Dies wurde mit Alpine 3.24.2 und dem Gastkernel `6.18.52-0-virt` erfolgreich geprüft.**
 
 ### Freigabe im Gast mounten und lesen
 
@@ -490,9 +490,93 @@ cat /mnt/labshare/host-to-guest.txt
 mount | grep labshare
 ```
 
-Wenn der Mount fehlschlägt, die Fehlermeldung sichern und **nicht** durch zusätzliche, ungeprüfte Berechtigungen oder Pakete umgehen. Wir prüfen dann zunächst `9p` und `9pnet_virtio` im Gastkernel. Bei Erfolg den Gast mit `poweroff` geordnet beenden. Der erste Test bildet nur Host → Gast ab; für Gast → Host folgt ein getrenntes, kontrolliertes Verfahren.
+Wenn der Mount fehlschlägt, die Fehlermeldung sichern und **nicht** durch zusätzliche, ungeprüfte Berechtigungen oder Pakete umgehen. Wir prüfen dann zunächst `9p` und `9pnet_virtio` im Gastkernel. Bei Erfolg den Gast mit `poweroff` geordnet beenden.
+
+**Verifizierter Referenzbefund:** Ein erneuter Alpine-Gaststart war erfolgreich. Die Textdatei wurde vollständig als `Hallo aus Ubuntu/WSL2` gelesen, und `mount` bestätigte `labshare on /mnt/labshare type 9p (ro,relatime,access=client,trans=virtio)`. Das anschließende `poweroff` führte zurück zum Ubuntu/WSL2-Prompt. Dies beweist Host → Gast und einen wiederholbaren Live-ISO-Start; **Gast → Host** ist damit noch nicht geprüft.
 
 Quelle: [QEMU – VirtIO-9P](https://www.qemu.org/docs/master/system/qemu-manpage.html).
+
+## Kontrollierte Dateiübertragung Gast → Host (VirtIO-9P)
+
+Nach dem erfolgreichen Lesezugriff prüfen wir den Rückweg separat. Anders als bei `labshare` wird dafür **ein eigenes, zunächst leeres Hostverzeichnis** schreibbar exportiert. Der Zugriff bleibt auf dieses Verzeichnis beschränkt. Das gesamte Home-Verzeichnis und der Projekt-Checkout werden nicht freigegeben.
+
+### Separates Ausgabe-Verzeichnis vorbereiten
+
+**Umgebung:** Ubuntu/WSL2 – Entwicklungs-Host · **Shell:** Bash · **Arbeitsverzeichnis:** beliebig.
+
+**Voraussetzungen:** Sauberer Repository-Checkout und funktionsfähiger vorheriger Gaststart. **Erwartetes Ergebnis:** Neues privates Verzeichnis `build/guest-out/` für die Gastausgabe. **Dateiänderungen:** Host erstellt das Verzeichnis und setzt dessen Zugriffsrechte auf `0700`; keine getrackten Dateien. **Git-Versionierung:** `build/` ist ignoriert.
+
+```bash
+mkdir -p "$HOME/linux-kernel-lab/build/guest-out"
+chmod 700 "$HOME/linux-kernel-lab/build/guest-out"
+ls -ld "$HOME/linux-kernel-lab/build/guest-out"
+```
+
+### ISO mit begrenztem Schreibexport starten
+
+**Umgebung:** Ubuntu/WSL2 – Entwicklungs-Host · **Shell:** Bash · **Arbeitsverzeichnis:** `~/linux-kernel-lab/downloads`.
+
+**Voraussetzungen:** Prüfsummenvalidierte ISO, vorhandenes `build/guest-out/`, funktionierender KVM-Test. **Erwartetes Ergebnis:** Alpine-Live-Gast startet mit einem **schreibbaren** VirtIO-9P-Export unter dem Mount-Tag `guestout`. **Dateiänderungen:** keine weiteren Hostdateien beim Start; spätere Ausgabedateien werden von Gastoperationen im dafür vorgesehenen Hostverzeichnis erstellt. **Git-Versionierung:** keine.
+
+```bash
+cd "$HOME/linux-kernel-lab/downloads"
+
+qemu-system-x86_64 \
+    -machine q35 \
+    -accel kvm \
+    -m 512M \
+    -smp 1 \
+    -boot order=d \
+    -cdrom alpine-virt-3.24.2-x86_64.iso \
+    -nic none \
+    -virtfs local,path="$HOME/linux-kernel-lab/build/guest-out",mount_tag=guestout,security_model=none \
+    -nographic
+```
+
+**Wichtiger Unterschied:** Im Gegensatz zum vorherigen Lesezugriff enthält der neue Export **kein** `readonly=on`. Laut QEMU-Dokumentation ist `-virtfs` standardmäßig schreibbar. Mit `security_model=none` führt QEMU die Host-Dateioperationen im Kontext des aufrufenden Host-Benutzers aus und ignoriert Fehler beim Setzen bestimmter Besitz-/Metadaten; es ist keine Root-Ausführung von QEMU erforderlich. Darum nur den isolierten Ausgabeordner freigeben und ausschließlich vertrauenswürdige Test-Gäste verwenden. Ein schreibbarer Export ist kein Sicherheits-Sandbox-Ersatz.
+
+### Diagnosebericht im Gast schreiben
+
+**Umgebung:** Alpine-Gast in QEMU · **Shell:** `ash` · **Benutzer:** `root` · **Arbeitsverzeichnis:** beliebig.
+
+**Voraussetzungen:** Erfolgreicher Gaststart und Anmeldung über `ttyS0`. **Erwartetes Ergebnis:** `guestout` wird mit `rw` gemountet und der Gast schreibt einen kurzen Diagnosebericht direkt in das Hostverzeichnis. **Dateiänderungen:** im Host `build/guest-out/guest-report.txt`; das Verzeichnis `/mnt/guestout` im flüchtigen Live-Gast. **Git-Versionierung:** keine.
+
+```sh
+mkdir -p /mnt/guestout
+mount -t 9p -o trans=virtio,version=9p2000.L guestout /mnt/guestout
+mount | grep guestout
+
+{
+    printf 'Gast: Alpine Linux\n'
+    printf 'Kernel: '
+    uname -r
+    printf 'Architektur: '
+    uname -m
+} > /mnt/guestout/guest-report.txt
+
+sync
+cat /mnt/guestout/guest-report.txt
+sha256sum /mnt/guestout/guest-report.txt
+poweroff
+```
+
+Die Prüfung auf `rw` im Mount-Ausdruck unterscheidet den Rücktransfer vom bisherigen `ro`-Export. `sync` fordert das Schreiben gepufferter Daten an, `poweroff` beendet den Live-Gast geordnet. Tritt beim Mount oder beim Schreiben ein Fehler auf, nicht eigenmächtig Berechtigungen ausweiten, sondern vollständigen Fehlertext dokumentieren und vor `poweroff` den Fehler untersuchen.
+
+### Ergebnis auf dem Host überprüfen
+
+**Umgebung:** Ubuntu/WSL2 – Entwicklungs-Host · **Shell:** Bash · **Arbeitsverzeichnis:** beliebig.
+
+**Voraussetzung:** QEMU wurde nach dem Gast-`poweroff` beendet. **Erwartetes Ergebnis:** Eine im Gast erzeugte Datei ist jetzt auf dem Host verfügbar und hat dieselbe SHA-256-Prüfsumme. **Dateiänderungen:** keine weiteren, Befehle lesen nur; `git status` zeigt weiterhin keine getrackten Änderungen.
+
+```bash
+cat "$HOME/linux-kernel-lab/build/guest-out/guest-report.txt"
+sha256sum "$HOME/linux-kernel-lab/build/guest-out/guest-report.txt"
+git -C "$HOME/linux-kernel-lab" status --short --branch
+```
+
+Wenn Dateiinhalt und Prüfsumme übereinstimmen, sind Host → Gast und Gast → Host mit begrenzten 9P-Verzeichnissen nachgewiesen. Für echte Kernel-Lab-Arbeit mit persistenten Veränderungen wird anschließend ein separater virtueller Datenträger samt definiertem Rücksetzmechanismus vorbereitet.
+
+Quelle: [QEMU-Dokumentation zu VirtIO-9P und `readonly=on`](https://www.qemu.org/docs/master/system/qemu-manpage.html).
 
 ## Weitere Einrichtung und Abschlusskriterien
 

@@ -789,13 +789,94 @@ Die Basis wird **erst nach einem separat validierten Boot ohne ISO** als unverä
 
 Offizielle Referenzen: [Alpine Installation – System Disk Mode](https://wiki.alpinelinux.org/wiki/Installation), [Alpine unter QEMU](https://wiki.alpinelinux.org/wiki/Installing_Alpine_in_a_virtual_machine).
 
+### Verifizierter Installationsbefund
+
+Der interaktive Installer `setup-alpine` wurde nach erneuter Prüfung des VirtIO-Geräts `/dev/vda` (`16777216` Sektoren, 8 GiB) erfolgreich ausgeführt. Dokumentierte Auswahl: `sys`, Zielgerät ausschließlich `vda`, Benutzer `lab`, Hostname `alpine-lab`, IPv4 über DHCP, Zeitzone `Europe/Berlin`, offizielles Alpine-CDN, **kein** SSH-Server. Es wurde vor der Datenträgerlöschung eine ausdrückliche Bestätigung für `vda` angezeigt und erteilt. Das Root- und Benutzerpasswort bleiben privat und werden nicht dokumentiert.
+
+Der Installer meldete `Installation is complete. Please reboot.`. Bei der Einrichtung erschien `Installing system on /dev/vda3`, `/mnt/boot is device /dev/vda1` sowie `creating /boot/initramfs-virt for 6.18.58-0-virt`. Der ISO-Live-Gast lief zuvor mit `6.18.52-0-virt`; das installierte Kernelpaket wurde bei der Installation offenbar aus den Alpine-Paketquellen aktualisiert. Welche Kernel-Version **tatsächlich** startet, muss der erste Disk-Boot noch bestätigen.
+
+Nach `poweroff` bestätigte `qemu-img info`: `qcow2`, virtuelle Größe 8 GiB, tatsächlich belegte Größe rund 101 MiB, `corrupt: false`. Der lokale Git-Status war unverändert sauber (`## main...origin/main`). Die Basis ist **installiert, aber noch nicht als funktionsfähiger Bootstand freigegeben**.
+
+### Schritt 5 – Erster Boot des installierten Systems (ohne ISO)
+
+**Umgebung:** Ubuntu/WSL2 – Entwicklungs-Host · **Shell:** Bash · **Arbeitsverzeichnis:** `~/linux-kernel-lab`.
+
+**Voraussetzungen:** QEMU ist beendet; `alpine-base.qcow2` enthält die erfolgreich abgeschlossene Installation und wird nicht gleichzeitig von anderen QEMU-Prozessen verwendet. **Erwartetes Ergebnis:** Firmware/Bootloader starten das installierte System von der virtuellen Festplatte; bei vorhandener serieller Login-Konfiguration erscheint `alpine-lab login:` oder ein äquivalenter Prompt. **Erzeugte Dateien:** keine neuen Projektdateien, jedoch reguläre **persistente Änderungen innerhalb** des QCOW2-Gastdatenträgers durch den Systemstart. **Git-Versionierung:** keine.
+
+```bash
+cd "$HOME/linux-kernel-lab"
+
+qemu-system-x86_64 \
+    -machine q35 \
+    -accel kvm \
+    -m 512M \
+    -smp 1 \
+    -boot c \
+    -drive file="$HOME/linux-kernel-lab/build/images/alpine-base.qcow2",format=qcow2,if=virtio \
+    -nic user,model=virtio-net-pci \
+    -nographic
+```
+
+**Wesentliche Unterschiede:** Kein `-cdrom`, kein `snapshot=on`, `-boot c` wählt den installierten Datenträger. Die Konfiguration verwendet weiterhin KVM und die mit dem Hostterminal verbundene emulierte serielle Schnittstelle.
+
+**Sonderfall serielle Konsole:** Die ISO hat eine funktionierende serielle Login-Konfiguration bewiesen, **nicht automatisch** das installierte System. Falls der Bildschirm keine Login-Ausgabe zeigt, zunächst einmal Enter drücken. Fehlt weiterhin ein Prompt, kann QEMU über `Strg+A`, danach `C` zum Monitor und dort `info status` geprüft werden; mit `quit` wird nur im Fehlerfall der Emulator beendet. **Nicht** mit `setup-alpine` erneut installieren oder die Basis auf Verdacht reparieren. Für einen Wiederherstellungs- oder Reparaturboot die ISO später separat und kontrolliert anschließen. Der Monitoring-/Quit-Weg kann einen harten Abbruch darstellen und ist kein sauberer Shutdown.
+
+### Schritt 6 – Installierte Gastumgebung verifizieren
+
+**Umgebung:** Installierter **Alpine-Linux-Gast** unter QEMU · **Shell:** `ash` · **Benutzer:** `root` (mit während der Installation gesetztem Passwort) · **Arbeitsverzeichnis:** beliebig.
+
+**Voraussetzung:** Erfolgreicher Disk-Boot mit serieller Anmeldung. **Erwartetes Ergebnis:** Persistent installierter Gast meldet seine Betriebssystem- und Kernelversion, Partitionen, Root-Mount und Benutzerkonfiguration. **Dateiänderungen:** nur normale Systemlaufzeitdaten im Basis-Image; die Prüfkommandos lesen. **Git-Versionierung:** keine.
+
+```sh
+cat /etc/os-release
+hostname
+uname -r
+uname -m
+cat /proc/cmdline
+id lab
+cat /proc/partitions
+mount | grep ' on / '
+df -h / /boot
+ip -4 addr show eth0
+ip route
+```
+
+Kontrollpunkte: `alpine-lab`; Kernelversion aus dem installierten System (in der Installationsausgabe `6.18.58-0-virt` vorbereitet); `/` von der virtuellen Systempartition (erwartet `vda3`); `lab` ist angelegt; Netzwerkparameter sind vorhanden oder werden bei Bedarf gesondert geprüft. Den eingeloggten Root- oder Benutzerpasswortwert **niemals** in Ausgaben kopieren.
+
+Für die erweiterte Prüfung der seriellen Konfiguration optional, wenn Login funktioniert:
+
+```sh
+grep ttyS0 /etc/inittab
+ls -l /boot
+```
+
+Die Existenz eines `getty`-Eintrags und der Bootdateien ist aussagekräftiger für die serielle Konfiguration als die erfolgreiche ISO-Anmeldung.
+
+### Schritt 7 – Geordnet herunterfahren und Image prüfen
+
+**Umgebung:** installierter Alpine-Gast · **Shell:** `ash` · **Benutzer:** `root`. **Erwartetes Ergebnis:** QEMU beendet sich nach `poweroff`.
+
+```sh
+poweroff
+```
+
+**Umgebung:** Ubuntu/WSL2 – Entwicklungs-Host · **Shell:** Bash · **Arbeitsverzeichnis:** beliebig. **Voraussetzung:** QEMU-Prozess beendet. **Erwartetes Ergebnis:** QCOW2-Integrität weiterhin `corrupt: false` und sauberer Git-Arbeitsbaum. **Dateiänderungen:** keine.
+
+```bash
+qemu-img info "$HOME/linux-kernel-lab/build/images/alpine-base.qcow2"
+git -C "$HOME/linux-kernel-lab" status --short --branch
+```
+
+**Noch kein Overlay erstellen.** Erst nach dem erfolgreichen Disk-Boot samt serieller Anmeldung und Shutdown sowie einem späteren erneuten Boot wird die Basis als qualifizierter Ausgangszustand eingefroren. Danach entsteht die separate Arbeitskopie mit Backing File.
+
+Quellen: [Alpine: Nach der Installation vom QEMU-Datenträger booten](https://wiki.alpinelinux.org/wiki/Install_Alpine_in_QEMU), [Alpine: serielle Konsole installieren und konfigurieren](https://wiki.alpinelinux.org/wiki/Enable_Serial_Console_on_Boot), [QEMU: `-nographic`](https://www.qemu.org/docs/master/system/qemu-manpage.html).
+
 ### Weitere Schritte (noch nicht durchgeführt)
 
-1. Nach erfolgreichem Preflight die Alpine-`virt`-ISO mit demselben Basisdatenträger erneut starten, diesmal **ohne** `snapshot=on`, und `setup-alpine` interaktiv mit Ziel `vda`, Modus `sys` ausführen (siehe detaillierte Anleitung oben).
-2. Alpine im **`sys`-Installationsmodus** auf `/dev/vda` installieren. Vor jeglicher Partitionierung prüfen, dass wirklich nur der neu erzeugte virtuelle Datenträger verwendet wird. Die virtuelle Festplatte darf nicht mit einer WSL- oder Windows-Hostplatte verwechselt werden.
-3. Ohne ISO vom installierten Datenträger booten; Benutzerzugang, Gastkernel, Mounts, Shutdown und erneuten Start qualifizieren.
-4. Gast sauber herunterfahren. Die geprüfte Basis unverändert aufbewahren; ein QCOW2-Overlay mit explizitem Backing-File-Format `qcow2` anlegen und den Gast ausschließlich über dieses Overlay ausführen.
-5. Nach einem kontrollierten Test im Gast das Overlay bei **ausgeschalteter VM** verwerfen/neu anlegen und die Wiederherstellung des ursprünglichen Zustands nachweisen. Keine `qemu-img commit`-Operation auf die Referenzbasis anwenden.
+1. **Offen:** Alpine erstmals **ohne ISO** booten und Bootloader, seriellen Login, Gastkernel, Dateisystem und Benutzerkonfiguration validieren.
+2. **Offen:** Installierte Gastumgebung geordnet beenden und mindestens einen weiteren Disk-Boot qualifizieren.
+3. **Offen:** Geprüfte Basis unverändert sichern und ein QCOW2-Overlay mit explizitem Backing-File-Format `qcow2` erzeugen.
+4. **Offen:** Änderungen in der Arbeits-VM vornehmen, Arbeits-Overlay **bei ausgeschalteter VM** ersetzen und den unveränderten Referenzzustand nachweisen. Keine `qemu-img commit`-Operation auf die Referenzbasis anwenden.
 
 Der Rücksetzmechanismus ist kein Backup des Host-Dateisystems. VirtIO-9P-Hostverzeichnisse bleiben von Gast-Datenträger-Snapshots unberührt und müssen separat kontrolliert werden.
 

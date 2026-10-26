@@ -156,6 +156,10 @@ Der Preflight wurde für Alpine 3.24.2 erfolgreich durchgeführt: `/dev/vda` ent
 
 Für die anschließende **klassische Alpine-Systeminstallation** wird der Live-Gast mit derselben virtuellen Festplatte ohne `snapshot=on` gestartet, der Installer `setup-alpine` interaktiv ausgeführt und explizit `vda` als Ziel sowie `sys` als Installationsmodus gewählt. Die Auswahl von `sys` kann sofort destruktive Datenträgeroperationen auslösen und darf nicht automatisiert oder mit unkontrollierten Gerätebezeichnungen erfolgen. Nach der Installation QEMU herunterfahren und für den nachfolgenden Boot **das ISO entfernen**. Eine Konfiguration der seriellen Login- und Kernel-Konsole der installierten Umgebung wird anschließend separat geprüft; die funktionierende Live-ISO-Konsole beweist nicht automatisch die Persistenz dieser Einstellung.
 
+**Beobachteter Installationsstand:** `setup-alpine` wurde mit `vda` (8 GiB) und `sys` abgeschlossen; Alpine installierte `/boot` auf `vda1` sowie das System auf `vda3`. Im Log wurde für `6.18.58-0-virt` eine Initramfs-Datei erstellt, während die Live-ISO zuvor mit `6.18.52-0-virt` lief. Die Installationsmeldung allein belegt **nicht**, welchen Kernel der frisch installierte Datenträger tatsächlich bootet. Nach Shutdown wies `qemu-img info` weiterhin einen konsistenten 8-GiB-QCOW2-Datenträger mit rund 101 MiB tatsächlicher Belegung aus.
+
+Die folgende Bootprüfung erfolgt ohne CD-ROM durch die QEMU-Option `-boot c`; `-nographic` reicht die emulierte serielle Schnittstelle an das Hostterminal durch. Bei Alpine im `sys`-Modus muss überprüft werden, ob der Bootloader und ein `getty` für `/dev/ttyS0` korrekt konfiguriert wurden. Wenn die serielle Anmeldung ausbleibt, ist das **kein Beleg für einen fehlgeschlagenen Kernel-Boot**: Das Gastsystem kann stattdessen über die emulierte VGA-Konsole booten. Fehlerdiagnose ist dann erforderlich, bevor die Basis als qualifiziert behandelt wird.
+
 Quellen: [Alpine: Installation in virtueller Maschine](https://wiki.alpinelinux.org/wiki/Installing_Alpine_in_a_virtual_machine), [QEMU: `qemu-img`](https://www.qemu.org/docs/master/tools/qemu-img.html).
 
 ### 6.2 Reihenfolge der Einrichtung

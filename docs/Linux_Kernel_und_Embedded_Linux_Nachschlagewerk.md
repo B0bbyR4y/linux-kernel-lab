@@ -120,7 +120,7 @@ Bei einer WSL2-Installation unterscheidet sich ein **Neustart der Ubuntu-Distrib
 
 Bei einem Character-Device-Knoten wie `/dev/kvm` steuern Dateibesitzer, Gruppe und Modus den normalen Dateizugriff. Die Gruppe `kvm` erlaubt bei einem Modus `crw-rw----` den Zugriff für ihre Mitglieder. `id -nG` zeigt die **aktiven Gruppenrechte eines Prozesses**, während `getent group kvm` den konfigurierten Gruppeneintrag liefert. Eine mit `usermod -aG` vorgenommene Änderung wird normalerweise erst in einer neuen Sitzung wirksam.
 
-Der Zugriffstest `[ -r /dev/kvm ] && [ -w /dev/kvm ]` prüft nur Lesen und Schreiben nach den aktuellen Rechten. Der nächste unabhängige Nachweis ist der Start eines QEMU-Prozesses mit KVM-Beschleunigung. Keine Berechtigung sollte durch pauschales Öffnen des Geräteknotens für alle Benutzer umgangen werden.
+Der Zugriffstest `[ -r /dev/kvm ] && [ -w /dev/kvm ]` prüft nur Lesen und Schreiben nach den aktuellen Rechten. Der nächste unabhängige Nachweis ist der Start eines QEMU-Prozesses mit KVM-Beschleunigung. Für eine gezielte Diagnose kann QEMU mit `-accel kvm -S -monitor stdio` ohne Gast-Image initialisiert werden; im **QEMU-Monitor** (nicht in einer Linux-Gast-Shell) zeigen `info kvm` und `info accelerators` den Aktivierungszustand an. Ein erfolgreicher Monitor-Test bestätigt die Initialisierung, ein späterer Gast-Boot erst die praktische Ausführbarkeit des Gasts. Keine Berechtigung sollte durch pauschales Öffnen des Geräteknotens für alle Benutzer umgangen werden.
 
 ### 6.2 Reihenfolge der Einrichtung
 

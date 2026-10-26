@@ -270,7 +270,43 @@ else
 fi
 ```
 
-Dies validiert ausschließlich die **Dateisystemberechtigungen** für `/dev/kvm`, noch nicht den Betrieb des KVM-Accelerators. Ein tatsächlicher QEMU/KVM-Funktionstest wird separat dokumentiert, sobald Berechtigungen und Ablauf verifiziert sind. Falls `/dev/kvm` fehlt, weder blind Gruppen ändern noch Zugriff durch `chmod 666` erzwingen; QEMU mit TCG ist der alternative Weg.
+Dies validiert ausschließlich die **Dateisystemberechtigungen** für `/dev/kvm`, noch nicht den Betrieb des KVM-Accelerators. Der tatsächliche QEMU/KVM-Test folgt im nächsten Abschnitt. Falls `/dev/kvm` fehlt, weder blind Gruppen ändern noch Zugriff durch `chmod 666` erzwingen; QEMU mit TCG ist der alternative Weg.
+
+## KVM-Accelerator mit QEMU prüfen (ohne Gast-Image)
+
+Dieser Funktionstest prüft, ob sich QEMU **ohne TCG-Fallback** mit KVM initialisieren lässt. Wir verwenden absichtlich kein heruntergeladenes Gast-Image und halten die virtuelle CPU an. Der Test setzt die erfolgreich geprüften Zugriffsrechte auf `/dev/kvm` voraus.
+
+**Umgebung:** Ubuntu/WSL2 (Entwicklungs-Host) · **Shell:** Bash · **Arbeitsverzeichnis:** beliebig.
+
+**Voraussetzungen:** `qemu-system-x86_64` installiert, aktueller Benutzer hat Lese- und Schreibzugriff auf `/dev/kvm`. **Erwartetes Ergebnis:** QEMU öffnet seinen Monitor mit `(qemu)` und weist den aktiven Accelerator als KVM aus. **Erzeugte Dateien:** keine. **Git-Versionierung:** keine.
+
+```bash
+qemu-system-x86_64 \
+    -machine q35 \
+    -accel kvm \
+    -m 256M \
+    -smp 1 \
+    -display none \
+    -nodefaults \
+    -S \
+    -monitor stdio
+```
+
+`-machine q35` wählt die emulierte PC-Plattform; `-accel kvm` verlangt explizit KVM, ohne automatischen TCG-Rückfall; `-m 256M` und `-smp 1` konfigurieren RAM und vCPU. `-display none` verhindert ein Grafikfenster, `-nodefaults` entfernt nicht angeforderte Standardgeräte. `-S` hält die vCPU an, und `-monitor stdio` macht den QEMU-Monitor im Terminal verfügbar.
+
+**Umgebung:** Interaktiver QEMU-Monitor im **WSL2-Hostterminal** (nicht die Shell eines Linux-Gasts). **Arbeitsverzeichnis:** nicht relevant. **Voraussetzung:** Prompt `(qemu)` nach erfolgreicher Initialisierung. **Erwartetes Ergebnis:** KVM-Informationen sowie Anzeige des benutzten Accelerators; QEMU wird geordnet beendet. **Dateien / Versionierung:** keine.
+
+```text
+info kvm
+info accelerators
+quit
+```
+
+`info kvm` meldet bei funktionierender KVM-Initialisierung sinngemäß `kvm support: enabled`; `info accelerators` zeigt den verwendeten Accelerator. `quit` beendet den QEMU-Prozess. Tritt schon beim Start eine Fehlermeldung auf, diese vollständig dokumentieren und keine unkontrollierten Workarounds an Virtualisierungs- oder Sicherheitskonfigurationen durchführen.
+
+Der positive Test beweist **KVM-Initialisierung**, noch keinen erfolgreichen Linux-Boot und keine längere fehlerfreie vCPU-Ausführung. Erst ein nachfolgender Start eines vorbereiteten Gast-Images kann die gesamte Virtualisierungskette belegen. Wenn KVM nicht funktioniert, kann die geplante QEMU-Lernumgebung stattdessen mit `-accel tcg` betrieben werden, mit erwartbar geringerer Performance.
+
+Referenzen: [QEMU – Invocation](https://www.qemu.org/docs/master/system/invocation.html), [QEMU – Monitor](https://www.qemu.org/docs/master/system/monitor.html).
 
 ## Weitere Einrichtung und Abschlusskriterien
 

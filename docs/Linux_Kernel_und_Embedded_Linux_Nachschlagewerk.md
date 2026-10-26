@@ -108,6 +108,14 @@ Ubuntu stellt bestimmte Paketaktualisierungen als **phased updates** schrittweis
 
 Reguläre **Sicherheits- und Wartungsupdates** des Ubuntu-User-Space sind auch für WSL2 sinnvoll; Microsoft und Ubuntu empfehlen `apt update` und `apt upgrade`. `apt upgrade` aktualisiert installierte Distributionspakete innerhalb derselben Ubuntu-Version. Es ist kein Release-Upgrade und ersetzt nicht den Microsoft-WSL-Kernel. Auch ein Paket wie `linux-libc-dev` liefert Header für die Linux-**User-Space-ABI**, aber keinen neuen laufenden WSL-Kernel. Vor umfangreichen Systemupdates lässt sich die Pakettransaktion mit `apt -s upgrade` prüfen. Ein `apt full-upgrade` kann nötigenfalls Pakete entfernen und wird für die normale Pflege nicht pauschal verwendet. **Sicherheitsupdates** werden bei Ubuntu nicht phasenweise zurückgehalten; einige nicht sicherheitskritische Updates können vorübergehend zurückgestellt werden.
 
+### 6.1.2 Paketintegrität und Aktualisierungswarnungen
+
+APT verwaltet sowohl die Paketauswahl als auch die Installation, während `dpkg` die konkreten Pakete auspackt und konfiguriert. Nach umfangreichen Aktualisierungen prüft `dpkg --audit`, ob unvollständig installierte oder konfigurierte Pakete zurückgeblieben sind. Ein leeres Ergebnis ist hierbei der Normalfall. Mit `sudo -v` lässt sich vor weiteren administrativen Änderungen prüfen, ob der privilegierte Zugriff funktioniert.
+
+`update-alternatives` verwaltet austauschbare Programme über symbolische Verknüpfungen, zum Beispiel unterschiedliche Implementierungen des Befehls `sudo`. Ein während eines Paketupdates reparierter Link-Verbund bedeutet nicht automatisch, dass das aktualisierte Programm hinterher defekt ist; der tatsächliche Zustand muss kontrolliert werden.
+
+Bei einer WSL2-Installation unterscheidet sich ein **Neustart der Ubuntu-Distribution** von einem **Herunterfahren aller WSL-Distributionen**. `wsl --terminate <Name>` beendet gezielt eine Distribution, während `wsl --shutdown` alle WSL-Instanzen einschließlich anderer laufender Anwendungen beendet. Vor einem Terminieren sollten laufende Prozesse in der betroffenen Distribution ordnungsgemäß beendet werden.
+
 ### 6.2 Reihenfolge der Einrichtung
 
 1. Windows-, WSL-, Ubuntu- und Rechnerdaten feststellen.
@@ -141,6 +149,8 @@ Das Repository liegt vorgesehen unter `~/linux-kernel-lab` in WSL2. Gemeinsame W
 - [Ubuntu: APT und phasenweise Updates](https://ubuntu.com/server/docs/about-apt-upgrade-and-phased-updates/)
 - [Ubuntu: Softwarepakete aktualisieren](https://ubuntu.com/server/docs/how-to/software/package-management/)
 - [Microsoft: WSL-Entwicklungsumgebung und Paketupdates](https://learn.microsoft.com/de-de/windows/wsl/setup/environment)
+- [Microsoft: WSL-Befehle zum Beenden von Distributionen](https://learn.microsoft.com/de-de/windows/wsl/basic-commands)
+- [Ubuntu Server: Paketupdates und Phasing](https://documentation.ubuntu.com/server/explanation/software/about-apt-upgrade-and-phased-updates/index.html)
 - [QEMU: Systememulation und Beschleuniger](https://www.qemu.org/docs/master/system/introduction.html)
 
 Die Referenzen beschreiben das Werkzeugverhalten. Die Auswahl unserer Lernschritte und der getrennten Testumgebung ist eine didaktische Entscheidung für dieses Projekt.

@@ -205,6 +205,26 @@ sudo apt upgrade
 
 `apt` kann Updates wegen *phased updates* vorübergehend zurückhalten; Sicherheitsupdates werden nicht phasenweise verteilt. Bei Änderungen an Systemdiensten oder der WSL-Integration prüfen wir nach der Installation, ob ein WSL-Neustart erforderlich ist. Ein `wsl --shutdown` wird nur gezielt in einem getrennten Windows-/PowerShell-Schritt durchgeführt, da es **alle** laufenden WSL-Distributionen beendet, einschließlich etwaiger Docker-Desktop-Instanzen.
 
+## Nach einem größeren Ubuntu-Update prüfen
+
+Nach einem umfangreichen Upgrade sollten die Paketdatenbank und der privilegierte Zugriff überprüft werden, bevor weitere Systemkonfigurationen erfolgen. Das gilt insbesondere, wenn Pakete wie `sudo`, `systemd`, `udev` oder die Ubuntu-WSL-Integration aktualisiert wurden. Warnungen bei `update-alternatives` oder Zertifikat-Rehash sind nicht automatisch Fehler; entscheidend sind der Abschluss der Paketkonfiguration und die anschließenden Funktionstests.
+
+**Umgebung:** Ubuntu/WSL2 (Entwicklungs-Host) · **Shell:** Bash · **Arbeitsverzeichnis:** `~`.
+
+**Voraussetzungen:** Paketupdate abgeschlossen, aktive Ubuntu-Shell. **Erwartetes Ergebnis:** `sudo` funktioniert und `dpkg --audit` meldet keine unvollständigen Paketinstallationen. **Erzeugte Dateien:** keine Projektdateien; `sudo` kann seinen Authentifizierungs-Zeitstempel im System verwalten. **Versionierung:** keine.
+
+```bash
+cd ~
+command -v sudo
+readlink -f "$(command -v sudo)"
+sudo -v && printf '%s\n' 'sudo: OK'
+dpkg --audit
+```
+
+`dpkg --audit` sollte bei vollständig konfigurierten Paketen keine Ausgabe erzeugen. Der erfolgreiche Aufruf von `sudo -v` prüft die Authentifizierung; der aufgelöste Dateipfad hilft, Alternativen-Verknüpfungen zu diagnostizieren. Ein wegen *phased updates* zurückgestelltes Paket zählt nicht als fehlerhaft installiertes Paket und muss nicht erzwungen werden.
+
+Nach größeren Änderungen an Systemdiensten und der WSL-Integration ist es sinnvoll, die Ubuntu-Distribution für den folgenden QEMU/KVM-Test neu zu starten. Ein gezieltes `wsl --terminate Ubuntu` aus **Windows/PowerShell** beendet nur die genannte Distribution; vorher laufende Prozesse und offene Dateien darin ordnungsgemäß schließen. Anders als `wsl --shutdown` stoppt es nicht absichtlich sämtliche WSL-Distributionen.
+
 ## Weitere Einrichtung und Abschlusskriterien
 
 Nach der Bestandsaufnahme folgen Werkzeuginstallation, ein geprüftes Gast-Image, ein dokumentierter QEMU-Start, Zugriff auf die Gast-Shell und Dateiaustausch. Stufe 0 ist abgeschlossen, wenn der Gast wiederholt bootet, seine Kernel-Version und Bootmeldungen sichtbar sind, Dateien übertragen werden können und Herunterfahren sowie Wiederherstellung eines definierten Ausgangszustands funktionieren.

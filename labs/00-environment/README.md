@@ -147,6 +147,40 @@ apt-cache policy build-essential gdb qemu-system-x86 qemu-utils
 
 `build-essential` zieht unter Ubuntu unter anderem `gcc` und `make` nach sich. `qemu-system-x86` stellt den Systememulator `qemu-system-x86_64` bereit, `qemu-utils` unter anderem `qemu-img`. Die Pakete werden erst nach Kontrolle der Kandidaten und Paketquellen gezielt installiert. Für andere Architekturen muss die Paketauswahl angepasst werden. Fehlende Kandidaten sind Anlass zur Prüfung der konfigurierten APT-Quellen (insbesondere `universe`), nicht zum ungeprüften Hinzufügen fremder Repositories.
 
+## Grundlegende Entwicklungswerkzeuge installieren
+
+Die Paketprüfung muss für `build-essential`, `gdb`, `qemu-system-x86` und `qemu-utils` jeweils einen installierbaren Kandidaten zeigen. Auf Ubuntu `x86_64` werden anschließend nur diese benötigten Pakete ausdrücklich angefordert. Eine allgemeine Systemaktualisierung mit `apt upgrade` gehört nicht zu diesem Schritt.
+
+**Umgebung:** Ubuntu/WSL2 (Entwicklungs-Host) · **Shell:** Bash · **Arbeitsverzeichnis:** Benutzerverzeichnis (`~`).
+
+**Voraussetzungen:** Erfolgreiches `sudo apt update`, installierbare Kandidaten in `apt-cache policy`, Internetzugang und `sudo`-Berechtigung.
+
+**Erwartetes Ergebnis:** APT zeigt die geplanten Abhängigkeiten und installiert nach Bestätigung Compiler, Build-Werkzeuge, GDB, QEMU-Systememulation und QEMU-Datenträgerwerkzeuge. Vor der Bestätigung die vorgeschlagenen Änderungen auf unerwartete Paketentfernungen oder umfangreiche, sachfremde Aktualisierungen prüfen. Falls die Pakettransaktion unerwartet aussieht, **abbrechen und die Ausgabe prüfen**, statt die Installation blind zu bestätigen. **Ablage / Versionierung:** systemweite Pakete und APT-Metadaten unter Ubuntu; keine erzeugten Repository-Dateien, keine Git-Versionierung.
+
+```bash
+cd ~
+sudo apt install build-essential gdb qemu-system-x86 qemu-utils
+```
+
+APT entscheidet über die tatsächlichen Versionen und erforderlichen Abhängigkeiten. Ubuntu kann Aktualisierungen phasenweise verteilen (`phased updates`). Eine explizite Paketinstallation ist nicht dasselbe wie ein allgemeines Upgrade und kann bei der Versionsauswahl anders mit phasenweise bereitgestellten Aktualisierungen umgehen. Deshalb nicht aus einem früheren `apt-cache policy`-Ergebnis auf die tatsächlich installierte Version schließen. Versionen nach der Installation ermitteln, keine Phasing-Sperre deaktivieren oder umgehen, um eine vermeintlich passende Version zu erzwingen.
+
+**Umgebung:** Ubuntu/WSL2 (Entwicklungs-Host) · **Shell:** Bash · **Arbeitsverzeichnis:** Benutzerverzeichnis (`~`).
+
+**Voraussetzung:** Erfolgreicher Abschluss der obigen Paketinstallation. **Erwartetes Ergebnis:** Für jedes Paket eine installierte Version sowie Versionsangaben aller direkt benötigten Programme. **Dateien / Versionierung:** keine.
+
+```bash
+cd ~
+dpkg-query -W -f='${Package}\t${Version}\n' build-essential gcc make gdb qemu-system-x86 qemu-utils
+
+gcc --version | head -n 1
+make --version | head -n 1
+gdb --version | head -n 1
+qemu-system-x86_64 --version | head -n 1
+qemu-img --version | head -n 1
+```
+
+Die Paketprüfung kontrolliert die installierten Pakete; die Versionsaufrufe bestätigen zusätzlich, dass die entsprechenden ausführbaren Programme erreichbar sind. Ein erfolgreicher Versionsaufruf des QEMU-Systememulators beweist noch nicht, dass ein Gast bootet oder KVM funktioniert. Diese Tests folgen in getrennten Schritten.
+
 ## Weitere Einrichtung und Abschlusskriterien
 
 Nach der Bestandsaufnahme folgen Werkzeuginstallation, ein geprüftes Gast-Image, ein dokumentierter QEMU-Start, Zugriff auf die Gast-Shell und Dateiaustausch. Stufe 0 ist abgeschlossen, wenn der Gast wiederholt bootet, seine Kernel-Version und Bootmeldungen sichtbar sind, Dateien übertragen werden können und Herunterfahren sowie Wiederherstellung eines definierten Ausgangszustands funktionieren.

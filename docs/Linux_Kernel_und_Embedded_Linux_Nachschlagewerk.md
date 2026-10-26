@@ -102,7 +102,9 @@ Die WSL2-VM teilt sich die physischen Ressourcen mit Windows. Ohne abweichende K
 
 Das Linux-Root-Dateisystem einer WSL2-Distribution liegt üblicherweise in einer virtuellen Festplatte (VHDX). `df -h` zeigt den Dateisystemplatz innerhalb dieses Datenträgers; die virtuelle Maximalgröße ist nicht mit dem tatsächlich verfügbaren Platz des Windows-Laufwerks gleichzusetzen. Insbesondere wenn eine dynamisch wachsende VHDX erweitert wird, benötigt sie weiteren Platz auf dem Windows-Host.
 
-Für die Paketinstallation dient APT als Paketverwaltung der Ubuntu-Entwicklungsumgebung. Paketindizes (`apt update`) und Paketinstallation sind unterschiedliche Schritte. Das Paket `build-essential` bündelt unter anderem C-Compiler und `make`; QEMUs **Systememulator** bootet ein ganzes Gastsystem, während User-Mode-QEMU nur einzelne Fremdarchitektur-Programme ausführt.
+Für die Paketinstallation dient APT als Paketverwaltung der Ubuntu-Entwicklungsumgebung. Paketindizes (`apt update`) und Paketinstallation (`apt install`) sind unterschiedliche Schritte. Das Paket `build-essential` bündelt unter anderem C-Compiler und `make`; QEMUs **Systememulator** bootet ein ganzes Gastsystem, während User-Mode-QEMU nur einzelne Fremdarchitektur-Programme ausführt.
+
+Ubuntu stellt bestimmte Paketaktualisierungen als **phased updates** schrittweise bereit, um Regressionsrisiken zu reduzieren. Ein Eintrag wie `(phased 50%)` in der Paketübersicht bezeichnet den derzeitigen Verteilungsgrad der betreffenden Aktualisierung, nicht eine halb installierte Paketversion. Die konkrete APT-Transaktion und die nach der Installation per `dpkg-query` feststellbare Version sind maßgeblich; ein gezieltes `apt install` kann von einem allgemeinen `apt upgrade` abweichen. Die **Entwicklungswerkzeuge** gehören zum WSL2-Host und werden nicht automatisch im QEMU-Gast installiert.
 
 ### 6.2 Reihenfolge der Einrichtung
 
@@ -134,6 +136,7 @@ Das Repository liegt vorgesehen unter `~/linux-kernel-lab` in WSL2. Gemeinsame W
 - [Microsoft: Grundlegende WSL-Befehle](https://learn.microsoft.com/en-us/windows/wsl/basic-commands)
 - [Microsoft: Arbeiten mit Dateisystemen in WSL](https://learn.microsoft.com/en-us/windows/wsl/filesystems)
 - [Microsoft: Erweiterte WSL-Konfiguration und Ressourcengrenzen](https://learn.microsoft.com/en-us/windows/wsl/wsl-config)
+- [Ubuntu: Phased Updates](https://ubuntu.com/project/docs/how-ubuntu-is-made/concepts/phased-updates/)
 - [QEMU: Systememulation und Beschleuniger](https://www.qemu.org/docs/master/system/introduction.html)
 
 Die Referenzen beschreiben das Werkzeugverhalten. Die Auswahl unserer Lernschritte und der getrennten Testumgebung ist eine didaktische Entscheidung für dieses Projekt.

@@ -574,9 +574,56 @@ sha256sum "$HOME/linux-kernel-lab/build/guest-out/guest-report.txt"
 git -C "$HOME/linux-kernel-lab" status --short --branch
 ```
 
-Wenn Dateiinhalt und Prüfsumme übereinstimmen, sind Host → Gast und Gast → Host mit begrenzten 9P-Verzeichnissen nachgewiesen. Für echte Kernel-Lab-Arbeit mit persistenten Veränderungen wird anschließend ein separater virtueller Datenträger samt definiertem Rücksetzmechanismus vorbereitet.
+**Verifizierter Referenzbefund:** Alpine 3.24.2 mit Kernel `6.18.52-0-virt` mountete `guestout` erfolgreich als `9p (rw,relatime,access=client,trans=virtio)`. Der Gast schrieb `guest-report.txt` mit `Gast: Alpine Linux`, `Kernel: 6.18.52-0-virt` und `Architektur: x86_64`, und führte `sync` sowie `poweroff` erfolgreich aus. Die Hostprüfung ergab dieselben Inhalte und dieselbe SHA-256-Prüfsumme `ca6e86eb5ade4896b53cabcf0c53d94735c045ac4c1ca833df0a1728daecccff`. Der lokale Git-Status blieb `## main...origin/main` ohne Änderungen. Damit ist der Dateiaustausch in beide Richtungen nachgewiesen.
+
+Für echte Kernel-Lab-Arbeit mit persistenten Veränderungen wird anschließend ein separater virtueller Datenträger samt definiertem Rücksetzmechanismus vorbereitet.
 
 Quelle: [QEMU-Dokumentation zu VirtIO-9P und `readonly=on`](https://www.qemu.org/docs/master/system/qemu-manpage.html).
+
+## Persistenten Datenträger und wiederherstellbare VM vorbereiten
+
+Nachdem beide Richtungen des VirtIO-9P-Dateiaustauschs nachgewiesen wurden, ist als nächster Meilenstein eine **dauerhaft installierte Alpine-Gastumgebung** mit definiertem Rücksetzpunkt erforderlich. Wir trennen dafür **Basisinstallation** und **Arbeits-Overlay**:
+
+- `build/images/alpine-base.qcow2`: persistenter virtueller Datenträger, zunächst für die Installation beschreibbar. **Erst nach erfolgreichem Installations- und Neustarttest wird diese Basis eingefroren** und nicht mehr direkt als normale Arbeits-VM gestartet.
+- `build/images/alpine-work.qcow2`: späteres Copy-on-Write-Overlay mit der Basisdatei als Backing File. Nur dieses Overlay wird für Experimente verwendet. Ein Austausch des Overlays im **ausgeschalteten** Zustand setzt den Gast auf den Basisstand zurück.
+
+Die Alpine-Dokumentation beschreibt die Installation in QEMU auf einen QCOW2-Datenträger mittels `setup-alpine`. Die QEMU-Dokumentation bestätigt, dass ein QCOW2-Overlay die Änderungen getrennt vom Backing File speichert. Quellen: [Alpine: Installation in virtueller Maschine](https://wiki.alpinelinux.org/wiki/Installing_Alpine_in_a_virtual_machine), [QEMU: `qemu-img` und Backing Files](https://www.qemu.org/docs/master/tools/qemu-img.html).
+
+### Schritt 1 – Leeren Basisdatenträger erstellen
+
+**Umgebung:** Ubuntu/WSL2 (Entwicklungs-Host) · **Shell:** Bash · **Arbeitsverzeichnis:** beliebig. **Voraussetzungen:** `qemu-img` installiert und validiert; Repository unter `~/linux-kernel-lab`; ausreichender freier Speicherplatz auf dem physisch unter WSL2 liegenden Windows-Laufwerk. **Erwartetes Ergebnis:** Ein leeres, virtuell 8 GiB großes QCOW2-Abbild; **noch kein Betriebssystem** im Abbild. **Erzeugte Dateien:** `build/images/alpine-base.qcow2`; durch `.gitignore` nicht versioniert. **Sicherheit:** restriktiver Verzeichnismodus `0700`, neue Image-Datei mit `umask 077`.
+
+```bash
+cd "$HOME/linux-kernel-lab"
+mkdir -p build/images
+chmod 700 build/images
+
+IMAGE="$HOME/linux-kernel-lab/build/images/alpine-base.qcow2"
+
+if [ -e "$IMAGE" ] || [ -L "$IMAGE" ]; then
+    printf 'ABBRUCH: Image existiert bereits: %s\n' "$IMAGE" >&2
+else
+    ( umask 077; qemu-img create -f qcow2 "$IMAGE" 8G )
+fi
+
+qemu-img info "$IMAGE"
+ls -lh "$IMAGE"
+du -h "$IMAGE"
+```
+
+Die Existenzprüfung verhindert ein unbeabsichtigtes Überschreiben eines früher angelegten Images. Bei bereits vorhandenem Image nicht automatisch neu erstellen: zunächst dessen Inhalt/Herkunft prüfen. Die ausgewiesene virtuelle Größe von **8 GiB** ist die für das Gastsystem sichtbare Datenträgerkapazität, nicht der sofort belegte Speicherplatz auf dem Host. Ein QCOW2 wächst beim Schreiben; WSL2 benötigt dafür tatsächlich freien Speicherplatz auf Windows.
+
+**Erwartete Prüfpunkte:** `file format: qcow2`, `virtual size: 8 GiB`, deutlich kleinerer anfänglicher tatsächlicher `disk size`-Wert. `qemu-img info` muss ohne Fehler enden. Größe und Dateirechte können je nach QEMU/Dateisystem variieren. **Noch nicht** das Arbeits-Overlay anlegen: Die Basis ist zunächst leer und muss erst installiert, gestartet und qualifiziert werden.
+
+### Weitere Schritte (noch nicht durchgeführt)
+
+1. Installationsstart: Geprüfte Alpine-`virt`-ISO zusammen mit dem leeren Basisdatenträger an QEMU übergeben, den Datenträger im Gast als `/dev/vda` prüfen und die bei `setup-alpine` benötigte temporäre Gast-Netzwerkverbindung gezielt bereitstellen.
+2. Alpine im **`sys`-Installationsmodus** auf `/dev/vda` installieren. Vor jeglicher Partitionierung prüfen, dass wirklich nur der neu erzeugte virtuelle Datenträger verwendet wird. Die virtuelle Festplatte darf nicht mit einer WSL- oder Windows-Hostplatte verwechselt werden.
+3. Ohne ISO vom installierten Datenträger booten; Benutzerzugang, Gastkernel, Mounts, Shutdown und erneuten Start qualifizieren.
+4. Gast sauber herunterfahren. Die geprüfte Basis unverändert aufbewahren; ein QCOW2-Overlay mit explizitem Backing-File-Format `qcow2` anlegen und den Gast ausschließlich über dieses Overlay ausführen.
+5. Nach einem kontrollierten Test im Gast das Overlay bei **ausgeschalteter VM** verwerfen/neu anlegen und die Wiederherstellung des ursprünglichen Zustands nachweisen. Keine `qemu-img commit`-Operation auf die Referenzbasis anwenden.
+
+Der Rücksetzmechanismus ist kein Backup des Host-Dateisystems. VirtIO-9P-Hostverzeichnisse bleiben von Gast-Datenträger-Snapshots unberührt und müssen separat kontrolliert werden.
 
 ## Weitere Einrichtung und Abschlusskriterien
 

@@ -140,6 +140,18 @@ Die **serielle Login-Sitzung** (ein `getty` auf `/dev/ttyS0`) ist von der **Kern
 
 Für eine sichere erste Host-zu-Gast-Übertragung bietet QEMU mit `-virtfs` einen **VirtIO-9P**-Export eines begrenzten Hostverzeichnisses an. Der Gast nutzt dessen Mount-Tag als Gerätenamen für `mount -t 9p -o trans=virtio`. Dafür müssen 9P-Dateisystem und VirtIO-9P-Transport im Gastkernel verfügbar sein. Diese Unterstützung wurde beim Gastkernel `6.18.52-0-virt` durch einen erfolgreichen 9P-Mount und lesenden Test nachgewiesen. `readonly=on` verhindert das Schreiben über den Export. Für Gast → Host benötigt der Gast einen **separat begrenzten schreibbaren Export**; ohne `readonly=on` ist 9P bei QEMU standardmäßig les- und schreibbar. Das Sicherheitsmodell `none` ersetzt keine Isolation: QEMU greift mit den Rechten seines Hostprozesses auf die freigegebenen Dateien zu, und Fehler bestimmter Metadaten-Operationen werden ignoriert. Deshalb eignen sich nur kleine, isolierte und entbehrliche Hostverzeichnisse für Schreibtests.
 
+Der bidirektionale Datenaustausch ist mit derselben Alpine-Version praktisch nachgewiesen: Der Gast erzeugte eine Datei im beschränkt freigegebenen `build/guest-out/`-Verzeichnis; die SHA-256-Prüfsummen im Gast und im WSL2-Host waren identisch. Ein erfolgreicher 9P-Dateiaustausch ersetzt allerdings keinen persistenten Gastdatenträger: Bei Live-ISO-Betrieb gehen Änderungen innerhalb des Gast-Root-Dateisystems nach dem Herunterfahren verloren.
+
+### 6.1.6 Persistente QCOW2-Datenträger und Rücksetzung
+
+**QCOW2** ist ein flexibles QEMU-Abbildformat für virtuelle Datenträger. `qemu-img create -f qcow2 alpine-base.qcow2 8G` erzeugt einen für den Gast 8 GiB großen, anfänglich weitgehend **sparsamen** Datenträger. `qemu-img info` unterscheidet die virtuelle Kapazität von der auf dem Host tatsächlich belegten Größe. Reale Schreibvorgänge können die Datei wachsen lassen; bei WSL2 begrenzt der freie Platz auf dem physisch unterliegenden Windows-Laufwerk das Wachstum.
+
+Für reproduzierbare Experimente wird die Basis zuerst mit einer dauerhaften Alpine-**sys**-Installation versehen und qualifiziert. Erst danach erzeugen wir eine separate **Copy-on-Write-Arbeitsebene** mit `qemu-img create -f qcow2 -F qcow2 -b <Basis> <Overlay>`. Normale Schreiboperationen der Arbeits-VM betreffen das Overlay, nicht die Basis. Eine Rücksetzung besteht darin, eine **nicht mehr laufende** Arbeits-VM zu stoppen und ihr Overlay kontrolliert zu ersetzen. Die Basis darf zwischenzeitlich nicht verändert werden. Das gilt insbesondere für `qemu-img commit`, das Änderungen aus einem Overlay in das Backing File übernehmen kann.
+
+Ein solcher Rücksetzmechanismus betrifft nur virtuelle Blöcke innerhalb der QCOW2-Datenträgerkette. Separat per VirtIO-9P exportierte **Host-Dateien** werden dadurch nicht zurückgesetzt.
+
+Quellen: [Alpine: Installation in virtueller Maschine](https://wiki.alpinelinux.org/wiki/Installing_Alpine_in_a_virtual_machine), [QEMU: `qemu-img`](https://www.qemu.org/docs/master/tools/qemu-img.html).
+
 ### 6.2 Reihenfolge der Einrichtung
 
 1. Windows-, WSL-, Ubuntu- und Rechnerdaten feststellen.

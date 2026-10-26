@@ -350,7 +350,96 @@ sha256sum --check "$IMAGE.sha256"
 
 Die SHA-256-Prüfung gleicht das heruntergeladene ISO mit der vom Projekt publizierten Prüfsumme ab und erkennt Übertragungsfehler oder abweichende Dateien. Sie ist **keine unabhängige Authentizitätsprüfung** der Herausgeberidentität, da ISO und Hash über denselben Server bezogen werden. Für höhere Anforderungen wäre zusätzlich eine vertrauenswürdig geprüfte Signatur nötig. Bei Prüfsummenfehler nicht booten.
 
-Das ISO wird nicht in Git eingecheckt. Ein erster QEMU-Gaststart mit aktiv laufender vCPU, Kernel-Meldungen und Gast-Shell wird als separater nächster Schritt dokumentiert und überprüft.
+Das ISO wird nicht in Git eingecheckt. Nach erfolgreicher Prüfsumme ist es für den ersten Gaststart bereit.
+
+## Erster Linux-Gast-Boot mit KVM und serieller Konsole
+
+Alpines `virt`-ISO bringt eine vorkonfigurierte serielle Konsole mit. Für den **ersten Funktionstest** booten wir ein temporäres Live-System unmittelbar vom ISO und legen noch keine virtuelle Festplatte an. Diese Sitzung ist nicht persistent; Änderungen innerhalb des Gasts gehen nach dem Herunterfahren verloren. Für spätere Übungen mit dauerhaften Änderungen richten wir einen eigenen Datenträger ein.
+
+### Lokalen Checkout abgleichen
+
+**Umgebung:** Ubuntu/WSL2 (Entwicklungs-Host) · **Shell:** Bash · **Arbeitsverzeichnis:** beliebig.
+
+**Voraussetzungen:** Sauberer lokaler Git-Checkout unter `~/linux-kernel-lab` ohne eigene ungesicherte Änderungen; vorhandenes Netzwerk. **Erwartetes Ergebnis:** Lokaler Branch `main` wird bei Bedarf per Fast-Forward auf den dokumentierten Stand aktualisiert. **Erzeugte/geänderte Dateien:** Versionsverwaltete Projektdateien und Git-Metadaten; die ignorierten Downloads bleiben erhalten. **Versionierung:** Es entsteht kein neuer Commit.
+
+```bash
+git -C "$HOME/linux-kernel-lab" status --short --branch
+git -C "$HOME/linux-kernel-lab" pull --ff-only
+git -C "$HOME/linux-kernel-lab" log -1 --format='%h %s'
+```
+
+Vor dem `pull` den Status prüfen. Bei lokalen Änderungen, unerwartetem Branch oder Merge-Konflikten nicht automatisch überschreiben.
+
+### ISO mit aktiviertem KVM booten
+
+**Umgebung:** Ubuntu/WSL2 (Entwicklungs-Host) · **Shell:** Bash · **Arbeitsverzeichnis:** `~/linux-kernel-lab/downloads`.
+
+**Voraussetzungen:** Alpine-`virt`-ISO erfolgreich SHA-256-geprüft, QEMU installiert, KVM-Initialisierung nachgewiesen, die Gast-ISO liegt im Verzeichnis. **Erwartetes Ergebnis:** Das Gast-Linux startet mit Bootmeldungen auf der seriellen Konsole; anschließend erscheint ein Alpine-Login-Prompt. **Erzeugte Dateien:** Keine zusätzlichen Dateien. Es wird **keine** virtuelle Festplatte angelegt; das ISO wird nur gelesen. **Git-Versionierung:** keine.
+
+```bash
+cd "$HOME/linux-kernel-lab/downloads"
+
+test -f alpine-virt-3.24.2-x86_64.iso &&
+qemu-system-x86_64 \
+    -machine q35 \
+    -accel kvm \
+    -m 512M \
+    -smp 1 \
+    -boot order=d \
+    -cdrom alpine-virt-3.24.2-x86_64.iso \
+    -nic none \
+    -nographic
+```
+
+Optionen:
+- `-machine q35`: PC-Maschinenmodell wie beim bisherigen Initialisierungstest;
+- `-accel kvm`: KVM ausdrücklich verwenden (kein stiller Rückfall auf TCG);
+- `-m 512M`, `-smp 1`: kleiner Ressourcenbedarf für den ersten Boot;
+- `-boot order=d`, `-cdrom ...`: vom Alpine-ISO als optischem Laufwerk booten;
+- `-nic none`: zunächst keine Netzwerkschnittstelle; kein Netz für diesen Test erforderlich;
+- `-nographic`: Terminal als serielle Gastkonsole und QEMU-Monitor nutzen; keine grafische Anzeige.
+
+Hier fehlt absichtlich `-S`: Die virtuelle CPU soll **tatsächlich laufen**. Die Option `-nodefaults` aus dem bloßen Initialisierungstest wird ebenfalls nicht übernommen, weil wir die normale PC-Geräteausstattung einschließlich serieller Schnittstelle zum Booten verwenden.
+
+Die Alpine-`virt`-ISO ist für eine serielle Konsole vorkonfiguriert ([Alpine-Wiki](https://wiki.alpinelinux.org/wiki/Enable_Serial_Console_on_Boot)). Nach dem Boot in der seriellen Gastkonsole am Prompt `localhost login:` mit `root` anmelden; bei der Live-ISO ist standardmäßig noch kein Root-Passwort gesetzt. Bei ausbleibender Anmeldung erst Enter drücken, keine Konfigurationsänderungen auf Verdacht vornehmen.
+
+### Gastkernel und Konsole inspizieren
+
+**Umgebung:** Linux-**Gast in QEMU** · **Shell:** Alpine-`ash` · **Arbeitsverzeichnis:** beliebig.
+
+**Voraussetzungen:** Alpine-Gast vollständig gebootet, Anmeldung als `root`. **Erwartetes Ergebnis:** Ausgabe der Alpine-Version, der Gastkernel-Version, der Architektur, der Kernel-Startparameter und der Bootmeldungen. **Dateien / Versionierung:** keine Projektdateien; temporäre Gastumgebung.
+
+```sh
+cat /etc/os-release
+uname -r
+uname -m
+cat /proc/cmdline
+dmesg | tail -n 35
+```
+
+`uname -r` in dieser Shell liefert die Version des **Gastkernels** (nicht den WSL2-Kernel `6.6.114.1-microsoft-standard-WSL2`). `/proc/cmdline` zeigt die dem Gastkernel übergebenen Startparameter, darunter bei serieller Konfiguration insbesondere `console=ttyS0` oder eine entsprechende Einstellung. `dmesg` liest den Ringpuffer des Gastkernels. Der Befehl wird nicht im WSL2-Host ausgeführt.
+
+### Gast geordnet herunterfahren
+
+**Umgebung:** Linux-Gast in QEMU · **Shell:** Alpine-`ash` · **Arbeitsverzeichnis:** beliebig. **Voraussetzung:** Befehle zur Bootprüfung beendet. **Erwartetes Ergebnis:** Gast fährt herunter; QEMU beendet sich normalerweise und gibt den WSL2-Prompt wieder frei. **Dateien / Versionierung:** keine persistenten Gastdateien.
+
+```sh
+poweroff
+```
+
+Falls die Konsole hängt, kann QEMU über den Tastatur-Multiplexer bedient werden: `Strg+A` und danach `C` zum Monitor, dort `quit` für ein sofortiges Beenden. `Strg+A` danach `X` beendet QEMU direkt. Beides ist ein **Notabbruch**, nicht mit einem sauberen `poweroff` zu verwechseln; [QEMU-Dokumentation zu Multiplexer-Tasten](https://www.qemu.org/docs/master/system/mux-chardev.html). Die Tastenkombinationen sind nacheinander auszuführen, nicht gleichzeitig.
+
+### Diagnosekriterien
+
+1. Der KVM-Accelerator initialisiert ohne Abbruch (die bereits bekannte Warnung über nicht verfügbares Gast-CPU-`svm`-Feature kann erneut auftreten).
+2. Das Linux-System zeigt Kernel-Bootmeldungen über die serielle Konsole.
+3. Eine Anmeldung in der Alpine-Gast-Shell gelingt.
+4. `uname -r` im Gast unterscheidet sich vom WSL2-Hostkernel und `dmesg` zeigt die Gast-Bootmeldungen.
+5. `poweroff` beendet den Gast ohne erzwungenen Prozessabbruch.
+
+Bootmeldungen und Prüfausgaben zur gemeinsamen Auswertung bereitstellen. Falls der Start bei der SVM-Warnung stehen bleibt oder eine andere Fehlermeldung erscheint, den Fehler vollständig dokumentieren, statt CPU-Features oder WSL-Konfiguration unkontrolliert anzupassen.
+
+## Weitere Einrichtung und Abschlusskriterien
 
 ## Weitere Einrichtung und Abschlusskriterien
 

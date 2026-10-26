@@ -130,6 +130,10 @@ Die durch `sha256sum -c` festgestellte **Integrität** besagt, dass die Datei mi
 
 Der Gast-Boot ergänzt eine wichtige Prüfung, die bei QEMUs `-S`-Initialisierung ausbleibt: die vCPU führt jetzt tatsächlich Gast-Anweisungen und schließlich einen eigenen Linux-Kernel aus.
 
+Für den ersten Boot kann das `virt`-ISO direkt als virtuelles CD-ROM dienen. `-boot order=d` wählt dieses Bootmedium, `-nographic` verbindet serielle Konsole und QEMU-Monitor mit dem Hostterminal, und `-nic none` trennt die Testmaschine zunächst vom Netzwerk. Im Unterschied zum Init-Test **ohne** aktiven Gast wird `-S` weggelassen. Die Live-ISO braucht für diesen Boot keine dauerhaft beschreibbare virtuelle Festplatte; Gaständerungen sind nach dem Ausschalten nicht persistent.
+
+Innerhalb des QEMU-Gasts zeigen `uname -r`, `/proc/cmdline` und `dmesg` Informationen des **Gastkernels**. `poweroff` aus der Gast-Shell ist die geordnete Herunterfahrmethode; QEMUs Monitorkommando `quit` oder die Multiplexer-Taste `Strg+A, X` beenden dagegen unmittelbar den Emulator. Eine bewiesene KVM-Initialisierung allein ist nicht mit einem erfolgreichen Gast-Boot gleichzusetzen.
+
 ### 6.2 Reihenfolge der Einrichtung
 
 1. Windows-, WSL-, Ubuntu- und Rechnerdaten feststellen.

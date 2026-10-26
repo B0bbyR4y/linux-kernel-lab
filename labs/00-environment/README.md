@@ -451,7 +451,7 @@ Nach dem ersten erfolgreichen Boot wird die Live-ISO ein zweites Mal gestartet. 
 
 ```bash
 mkdir -p "$HOME/linux-kernel-lab/build/share"
-printf '%s\\n' 'Hallo aus Ubuntu/WSL2' > "$HOME/linux-kernel-lab/build/share/host-to-guest.txt"
+printf '%s\n' 'Hallo aus Ubuntu/WSL2' > "$HOME/linux-kernel-lab/build/share/host-to-guest.txt"
 cat "$HOME/linux-kernel-lab/build/share/host-to-guest.txt"
 ```
 
@@ -463,15 +463,15 @@ cat "$HOME/linux-kernel-lab/build/share/host-to-guest.txt"
 
 ```bash
 cd "$HOME/linux-kernel-lab/downloads"
-qemu-system-x86_64 \\
-    -machine q35 \\
-    -accel kvm \\
-    -m 512M \\
-    -smp 1 \\
-    -boot order=d \\
-    -cdrom alpine-virt-3.24.2-x86_64.iso \\
-    -nic none \\
-    -virtfs local,path="$HOME/linux-kernel-lab/build/share",mount_tag=labshare,security_model=none,readonly=on \\
+qemu-system-x86_64 \
+    -machine q35 \
+    -accel kvm \
+    -m 512M \
+    -smp 1 \
+    -boot order=d \
+    -cdrom alpine-virt-3.24.2-x86_64.iso \
+    -nic none \
+    -virtfs local,path="$HOME/linux-kernel-lab/build/share",mount_tag=labshare,security_model=none,readonly=on \
     -nographic
 ```
 

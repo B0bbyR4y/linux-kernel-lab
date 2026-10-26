@@ -145,7 +145,7 @@ sudo apt update
 apt-cache policy build-essential gdb qemu-system-x86 qemu-utils
 ```
 
-`build-essential` zieht unter Ubuntu unter anderem `gcc` und `make` nach sich. `qemu-system-x86` stellt den Systememulator `qemu-system-x86_64` bereit, `qemu-utils` unter anderem `qemu-img`. Die Pakete werden erst nach Kontrolle der Kandidaten und Paketquellen gezielt installiert. Für andere Architekturen muss die Paketauswahl angepasst werden. Fehlende Kandidaten sind Anlass zur Prüfung der konfigurierten APT-Quellen (insbesondere `universe`), nicht zum ungeprüften Hinzufügen fremder Repositories.
+`build-essential` zieht unter Ubuntu unter anderem `gcc` und `make` nach sich. `qemu-system-x86` stellt den Systememulator `qemu-system-x86_64` bereit, `qemu-utils` unter anderem `qemu-img`. Die Pakete werden erst nach Kontrolle der Kandidaten und Paketquellen gezielt installiert. Für andere Architekturen muss die Paketauswahl angepasst werden. Fehlende Kandidaten sind Anlass zur Prüfung der konfigurierten APT-Quellen und aktivierten Ubuntu-Komponenten, nicht zum ungeprüften Hinzufügen fremder Repositories. Auf Ubuntu 26.04 können die für diesen Einstieg benötigten Pakete aus `main` verfügbar sein.
 
 ## Grundlegende Entwicklungswerkzeuge installieren
 
@@ -180,6 +180,30 @@ qemu-img --version | head -n 1
 ```
 
 Die Paketprüfung kontrolliert die installierten Pakete; die Versionsaufrufe bestätigen zusätzlich, dass die entsprechenden ausführbaren Programme erreichbar sind. Ein erfolgreicher Versionsaufruf des QEMU-Systememulators beweist noch nicht, dass ein Gast bootet oder KVM funktioniert. Diese Tests folgen in getrennten Schritten.
+
+## Reguläre Ubuntu-Updates vor der Virtualisierung prüfen
+
+Nach der gezielten Werkzeug-Installation ist die Ubuntu-Basis auf einem gepflegten Stand zu halten. Dies betrifft Sicherheits- und Fehlerkorrekturen der **WSL2-Distribution**, etwa `systemd`, `sudo`, kryptografische Bibliotheken und `ubuntu-wsl`. Es aktualisiert **nicht** den von Microsoft bereitgestellten WSL-Kernel; dessen Versionsverwaltung erfolgt getrennt unter Windows. Offizielle Hinweise: [Microsoft WSL – Linux-Pakete aktualisieren](https://learn.microsoft.com/de-de/windows/wsl/setup/environment#update-and-upgrade-packages), [Ubuntu – Paketverwaltung](https://ubuntu.com/server/docs/how-to/software/package-management/).
+
+Zunächst nur den geplanten Upgrade-Vorgang simulieren und mögliche zurückgehaltene Pakete erfassen. **Umgebung:** Ubuntu/WSL2 (Entwicklungs-Host) · **Shell:** Bash · **Arbeitsverzeichnis:** Benutzerverzeichnis (`~`). **Voraussetzungen:** funktionierende APT-Paketquellen, installierte Werkzeuge, `sudo`-Zugang. **Erwartetes Ergebnis:** Pakettransaktion mit vorgesehenen Upgrades und eventuellen Zusatzpaketen, ohne Installation. **Dateien / Versionierung:** Paketindex wird von `apt update` lokal aktualisiert; die Simulation verändert keine installierten Pakete und erzeugt keine Projektdateien.
+
+```bash
+cd ~
+sudo apt update
+sudo apt -s upgrade
+apt-mark showhold
+```
+
+Das Ergebnis der Simulation vor einem echten Upgrade prüfen, insbesondere auf unerwartete Paketentfernungen, Paketkonflikte, ungewöhnliche Quellen oder geänderte Abhängigkeiten. `apt upgrade` ist für normale Wartungsupdates vorgesehen; `apt full-upgrade`, ein Release-Wechsel (`do-release-upgrade`) oder das Erzwingen phasenweise zurückgehaltener Updates gehören **nicht** zu diesem Schritt.
+
+**Nach erfolgreicher Prüfung** die vorgeschlagenen Updates installieren. **Umgebung:** Ubuntu/WSL2 · **Shell:** Bash · **Arbeitsverzeichnis:** `~`. **Voraussetzungen:** Simulation geprüft und keine unerwarteten Änderungen; bei Diskrepanzen erst Ursache klären. **Ergebnis:** Aktualisierte Ubuntu-Pakete; ggf. neue lokale Paketabhängigkeiten. **Versionierung:** Keine Projektdateien betroffen.
+
+```bash
+cd ~
+sudo apt upgrade
+```
+
+`apt` kann Updates wegen *phased updates* vorübergehend zurückhalten; Sicherheitsupdates werden nicht phasenweise verteilt. Bei Änderungen an Systemdiensten oder der WSL-Integration prüfen wir nach der Installation, ob ein WSL-Neustart erforderlich ist. Ein `wsl --shutdown` wird nur gezielt in einem getrennten Windows-/PowerShell-Schritt durchgeführt, da es **alle** laufenden WSL-Distributionen beendet, einschließlich etwaiger Docker-Desktop-Instanzen.
 
 ## Weitere Einrichtung und Abschlusskriterien
 

@@ -106,6 +106,8 @@ Für die Paketinstallation dient APT als Paketverwaltung der Ubuntu-Entwicklungs
 
 Ubuntu stellt bestimmte Paketaktualisierungen als **phased updates** schrittweise bereit, um Regressionsrisiken zu reduzieren. Ein Eintrag wie `(phased 50%)` in der Paketübersicht bezeichnet den derzeitigen Verteilungsgrad der betreffenden Aktualisierung, nicht eine halb installierte Paketversion. Die konkrete APT-Transaktion und die nach der Installation per `dpkg-query` feststellbare Version sind maßgeblich; ein gezieltes `apt install` kann von einem allgemeinen `apt upgrade` abweichen. Die **Entwicklungswerkzeuge** gehören zum WSL2-Host und werden nicht automatisch im QEMU-Gast installiert.
 
+Reguläre **Sicherheits- und Wartungsupdates** des Ubuntu-User-Space sind auch für WSL2 sinnvoll; Microsoft und Ubuntu empfehlen `apt update` und `apt upgrade`. `apt upgrade` aktualisiert installierte Distributionspakete innerhalb derselben Ubuntu-Version. Es ist kein Release-Upgrade und ersetzt nicht den Microsoft-WSL-Kernel. Auch ein Paket wie `linux-libc-dev` liefert Header für die Linux-**User-Space-ABI**, aber keinen neuen laufenden WSL-Kernel. Vor umfangreichen Systemupdates lässt sich die Pakettransaktion mit `apt -s upgrade` prüfen. Ein `apt full-upgrade` kann nötigenfalls Pakete entfernen und wird für die normale Pflege nicht pauschal verwendet. **Sicherheitsupdates** werden bei Ubuntu nicht phasenweise zurückgehalten; einige nicht sicherheitskritische Updates können vorübergehend zurückgestellt werden.
+
 ### 6.2 Reihenfolge der Einrichtung
 
 1. Windows-, WSL-, Ubuntu- und Rechnerdaten feststellen.
@@ -136,7 +138,9 @@ Das Repository liegt vorgesehen unter `~/linux-kernel-lab` in WSL2. Gemeinsame W
 - [Microsoft: Grundlegende WSL-Befehle](https://learn.microsoft.com/en-us/windows/wsl/basic-commands)
 - [Microsoft: Arbeiten mit Dateisystemen in WSL](https://learn.microsoft.com/en-us/windows/wsl/filesystems)
 - [Microsoft: Erweiterte WSL-Konfiguration und Ressourcengrenzen](https://learn.microsoft.com/en-us/windows/wsl/wsl-config)
-- [Ubuntu: Phased Updates](https://ubuntu.com/project/docs/how-ubuntu-is-made/concepts/phased-updates/)
+- [Ubuntu: APT und phasenweise Updates](https://ubuntu.com/server/docs/about-apt-upgrade-and-phased-updates/)
+- [Ubuntu: Softwarepakete aktualisieren](https://ubuntu.com/server/docs/how-to/software/package-management/)
+- [Microsoft: WSL-Entwicklungsumgebung und Paketupdates](https://learn.microsoft.com/de-de/windows/wsl/setup/environment)
 - [QEMU: Systememulation und Beschleuniger](https://www.qemu.org/docs/master/system/introduction.html)
 
 Die Referenzen beschreiben das Werkzeugverhalten. Die Auswahl unserer Lernschritte und der getrennten Testumgebung ist eine didaktische Entscheidung für dieses Projekt.

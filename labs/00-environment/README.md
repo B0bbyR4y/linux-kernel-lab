@@ -401,7 +401,7 @@ Optionen:
 
 Hier fehlt absichtlich `-S`: Die virtuelle CPU soll **tatsächlich laufen**. Die Option `-nodefaults` aus dem bloßen Initialisierungstest wird ebenfalls nicht übernommen, weil wir die normale PC-Geräteausstattung einschließlich serieller Schnittstelle zum Booten verwenden.
 
-Die Alpine-`virt`-ISO ist für eine serielle Konsole vorkonfiguriert ([Alpine-Wiki](https://wiki.alpinelinux.org/wiki/Enable_Serial_Console_on_Boot)). Nach dem Boot in der seriellen Gastkonsole am Prompt `localhost login:` mit `root` anmelden; bei der Live-ISO ist standardmäßig noch kein Root-Passwort gesetzt. Bei ausbleibender Anmeldung erst Enter drücken, keine Konfigurationsänderungen auf Verdacht vornehmen.
+Die Alpine-`virt`-ISO ist für eine serielle Konsole vorkonfiguriert ([Alpine-Wiki](https://wiki.alpinelinux.org/wiki/Enable_Serial_Console_on_Boot)). Nach dem Boot in der seriellen Gastkonsole am Prompt `localhost login:` mit `root` anmelden; bei der Live-ISO ist standardmäßig noch kein Root-Passwort gesetzt. Bei ausbleibender Anmeldung erst Enter drücken, keine Konfigurationsänderungen auf Verdacht vornehmen. Eine Anmeldung über `ttyS0` beweist die Funktion der seriellen **Login-Sitzung**, aber nicht automatisch die Ausgabe sämtlicher früher Kernelmeldungen über diese Schnittstelle. Ein fehlendes `console=ttyS0` in `/proc/cmdline` bedeutet, dass dieses Ziel nicht ausdrücklich als Kernel-Bootparameter angegeben wurde.
 
 ### Gastkernel und Konsole inspizieren
 
@@ -439,7 +439,60 @@ Falls die Konsole hängt, kann QEMU über den Tastatur-Multiplexer bedient werde
 
 Bootmeldungen und Prüfausgaben zur gemeinsamen Auswertung bereitstellen. Falls der Start bei der SVM-Warnung stehen bleibt oder eine andere Fehlermeldung erscheint, den Fehler vollständig dokumentieren, statt CPU-Features oder WSL-Konfiguration unkontrolliert anzupassen.
 
-## Weitere Einrichtung und Abschlusskriterien
+## Wiederholter Gaststart und Dateiübertragung Host → Gast (VirtIO-9P)
+
+Nach dem ersten erfolgreichen Boot wird die Live-ISO ein zweites Mal gestartet. Für den ersten Dateiaustausch soll der Gast ein **eigens angelegtes Hostverzeichnis nur lesend** einbinden. Das gesamte Home-Verzeichnis oder Repository wird nicht exportiert.
+
+### Hostdatei bereitstellen
+
+**Umgebung:** Ubuntu/WSL2 · **Shell:** Bash · **Arbeitsverzeichnis:** beliebig.
+**Voraussetzungen:** lokaler Checkout, Schreibrechte unter `~/linux-kernel-lab/build`.
+**Ergebnis/Dateien:** `build/share/host-to-guest.txt`; durch `.gitignore` nicht versioniert.
+
+```bash
+mkdir -p "$HOME/linux-kernel-lab/build/share"
+printf '%s\\n' 'Hallo aus Ubuntu/WSL2' > "$HOME/linux-kernel-lab/build/share/host-to-guest.txt"
+cat "$HOME/linux-kernel-lab/build/share/host-to-guest.txt"
+```
+
+### QEMU mit schreibgeschützter Freigabe starten
+
+**Umgebung:** Ubuntu/WSL2 · **Shell:** Bash · **Arbeitsverzeichnis:** `~/linux-kernel-lab/downloads`.
+**Voraussetzungen:** SHA-256-geprüfte Alpine-ISO, funktionierender KVM-Gaststart und vorhandenes `build/share`.
+**Ergebnis/Dateien:** erneuter Live-Boot; keine weiteren persistenten Dateien oder Git-Änderungen.
+
+```bash
+cd "$HOME/linux-kernel-lab/downloads"
+qemu-system-x86_64 \\
+    -machine q35 \\
+    -accel kvm \\
+    -m 512M \\
+    -smp 1 \\
+    -boot order=d \\
+    -cdrom alpine-virt-3.24.2-x86_64.iso \\
+    -nic none \\
+    -virtfs local,path="$HOME/linux-kernel-lab/build/share",mount_tag=labshare,security_model=none,readonly=on \\
+    -nographic
+```
+
+`-virtfs` stellt ein VirtIO-9P-Gerät mit dem Tag `labshare` bereit; `readonly=on` schützt die freigegebenen Hostdateien vor Schreibzugriffen des Gasts. Der Gastkernel benötigt Unterstützung für das 9P-Dateisystem und den VirtIO-9P-Transport. Das Vorhandensein dieser Unterstützung ist im konkret gestarteten Alpine-Kernel noch zu prüfen.
+
+### Freigabe im Gast mounten und lesen
+
+**Umgebung:** Alpine-Linux-Gast in QEMU · **Shell:** `ash` · **Benutzer:** `root` · **Arbeitsverzeichnis:** beliebig.
+**Voraussetzungen:** erneuter Boot erfolgreich; Anmeldung über `ttyS0`.
+**Erwartetes Ergebnis:** Textdatei aus dem Hostverzeichnis wird lesbar; keine persistenten Gastdateien oder Repository-Änderungen.
+
+```sh
+mkdir -p /mnt/labshare
+mount -t 9p -o trans=virtio,version=9p2000.L,ro labshare /mnt/labshare
+cat /mnt/labshare/host-to-guest.txt
+mount | grep labshare
+```
+
+Wenn der Mount fehlschlägt, die Fehlermeldung sichern und **nicht** durch zusätzliche, ungeprüfte Berechtigungen oder Pakete umgehen. Wir prüfen dann zunächst `9p` und `9pnet_virtio` im Gastkernel. Bei Erfolg den Gast mit `poweroff` geordnet beenden. Der erste Test bildet nur Host → Gast ab; für Gast → Host folgt ein getrenntes, kontrolliertes Verfahren.
+
+Quelle: [QEMU – VirtIO-9P](https://www.qemu.org/docs/master/system/qemu-manpage.html).
 
 ## Weitere Einrichtung und Abschlusskriterien
 

@@ -134,6 +134,12 @@ Für den ersten Boot kann das `virt`-ISO direkt als virtuelles CD-ROM dienen. `-
 
 Innerhalb des QEMU-Gasts zeigen `uname -r`, `/proc/cmdline` und `dmesg` Informationen des **Gastkernels**. `poweroff` aus der Gast-Shell ist die geordnete Herunterfahrmethode; QEMUs Monitorkommando `quit` oder die Multiplexer-Taste `Strg+A, X` beenden dagegen unmittelbar den Emulator. Eine bewiesene KVM-Initialisierung allein ist nicht mit einem erfolgreichen Gast-Boot gleichzusetzen.
 
+### 6.1.5 Serieller Login und Dateiübertragung
+
+Die **serielle Login-Sitzung** (ein `getty` auf `/dev/ttyS0`) ist von der **Kernel-Konsole** zu unterscheiden. Ein Gast kann über `ttyS0` Anmeldungen zulassen, obwohl `/proc/cmdline` kein `console=ttyS0` nennt. `dmesg` liest den Kernel-Ringpuffer und beweist allein nicht, über welches Ausgabegerät alle Bootmeldungen zuvor übertragen wurden. Der bereits gestartete `6.18.52-0-virt` ist ein vorgefertigter Alpine-Kernel, noch kein eigener Kernel-Build des Lernprojekts.
+
+Für eine sichere erste Host-zu-Gast-Übertragung bietet QEMU mit `-virtfs` einen **VirtIO-9P**-Export eines begrenzten Hostverzeichnisses an. Der Gast nutzt dessen Mount-Tag als Gerätenamen für `mount -t 9p -o trans=virtio`. Dafür müssen 9P-Dateisystem und VirtIO-9P-Transport im Gastkernel verfügbar sein. `readonly=on` erlaubt zunächst nur das Lesen von Hostdateien; für Gast → Host wird später eine separate, kontrollierte Lösung benötigt.
+
 ### 6.2 Reihenfolge der Einrichtung
 
 1. Windows-, WSL-, Ubuntu- und Rechnerdaten feststellen.

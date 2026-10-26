@@ -871,12 +871,43 @@ git -C "$HOME/linux-kernel-lab" status --short --branch
 
 Quellen: [Alpine: Nach der Installation vom QEMU-Datenträger booten](https://wiki.alpinelinux.org/wiki/Install_Alpine_in_QEMU), [Alpine: serielle Konsole installieren und konfigurieren](https://wiki.alpinelinux.org/wiki/Enable_Serial_Console_on_Boot), [QEMU: `-nographic`](https://www.qemu.org/docs/master/system/qemu-manpage.html).
 
+### Verifizierter erster Disk-Boot (ohne ISO)
+
+**Ergebnis: PASS.** Der fest installierte Alpine-Gast wurde ohne Installations-ISO direkt von `build/images/alpine-base.qcow2` gestartet. OpenRC `0.63.2` startete den Kernel `6.18.58-0-virt`, prüfte die Dateisysteme erfolgreich und aktivierte die persistente Systemkonfiguration.
+
+| Prüfkriterium | Beobachteter Wert |
+|---|---|
+| Installiertes System | Alpine Linux `VERSION_ID=3.24.3` (ISO zuvor 3.24.2; Pakete wurden bei der Installation aus dem Repository bezogen) |
+| Gastkernel | `6.18.58-0-virt`, Architektur `x86_64` |
+| Hostname | `alpine-lab` |
+| Serielle Anmeldung | `alpine-lab login:` über `/dev/ttyS0`; Root-Passwort akzeptiert |
+| Kernel-Bootparameter | u. a. `root=UUID=…`, `rootfstype=ext4`, `console=ttyS0,9600` |
+| Serielle Login-Konfiguration | `/etc/inittab` enthält einen aktiven `ttyS0::respawn`-Eintrag |
+| Regulärer Benutzer | `lab` existiert mit UID/GID `1000`, u. a. Mitglied von `wheel` |
+| Partitionen | `vda1` Boot, `vda2` Swap, `vda3` Root |
+| Root-Dateisystem | `/dev/vda3` als `ext4 (rw,relatime)` auf `/` |
+| Bootpartition | `/dev/vda1` als `/boot` (laut `df`) |
+| IPv4 und Routing | `10.0.2.15/24` über `eth0`, Defaultgateway `10.0.2.2` |
+| Shutdown | `poweroff` durch OpenRC mit `reboot: Power down` abgeschlossen |
+| QCOW2 danach | virtuelle 8 GiB, reale `102 MiB`, `corrupt: false` |
+| Git-Status | sauber: `## main...origin/main` |
+
+Die **Version 3.24.3** bezieht sich auf das jetzt installierte System, während das geprüfte Installations-ISO **3.24.2** war. Der installierte Kernel `6.18.58-0-virt` ist vom vorherigen ISO-Kernel `6.18.52-0-virt` zu unterscheiden. Das installierte System ist bereits einmal vollständig gebootet und sauber heruntergefahren. Der zweite, unabhängige Disk-Boot und der Rücksetztest stehen noch aus.
+
+### Fortsetzung – Zweitstart und qualifizierte Referenzbasis
+
+Als nächsten Schritt den identischen Disk-Boot ohne ISO **wiederholen**; hierbei nach der Anmeldung einen kleinen Persistenzmarker im Gast anlegen oder einen vorhandenen Marker prüfen, ihn nach erneutem Shutdown und Boot nachweisen und die Testdatei vor dem Einfrieren der Basis wieder entfernen. Den Bootvorgang, Gast-Kernel, Dateisystem, seriellen Login und Shutdown erneut qualifizieren. Die übrige Konfiguration soll unverändert bleiben.
+
+Danach **bei vollständig ausgeschalteter VM** das Basisimage als schreibgeschützte Referenz absichern, die Referenz samt ihrem unveränderlichen Backing-File-Pfad dokumentieren und mit `qemu-img create -f qcow2 -F qcow2 -b …` ein Arbeits-Overlay (`build/images/alpine-work.qcow2`) erzeugen. Vor dem ersten Overlay-Boot `qemu-img info --backing-chain` zur Prüfung verwenden; spätere Arbeiten ausschließlich auf dem Overlay ausführen. Im Overlay eine entbehrliche Gastdatei erzeugen, den Gast sauber beenden, das Overlay im ausgeschalteten Zustand kontrolliert neu erzeugen und bestätigen, dass diese Datei verschwunden ist und die Basis unverändert blieb.
+
+**Sicherheit und Wiederherstellung:** Keine Overlay-Neuanlage während die VM läuft; Basis nicht mit QEMU beschreibbar starten oder durch `qemu-img commit` verändern. Ein Overlay ist keine unabhängige Sicherung des Basisimages: Wenn die Basis verloren geht oder geändert wird, kann das Overlay nicht mehr korrekt darauf aufbauen. Änderungen in per VirtIO-9P freigegebenen Hostordnern werden durch Overlay-Rücksetzung **nicht** rückgängig gemacht. Konkrete Befehle und Prüfungen für die abschließende Baseline-/Rollback-Validierung werden nach dem Zweitstart ergänzt.
+
 ### Weitere Schritte (noch nicht durchgeführt)
 
-1. **Offen:** Alpine erstmals **ohne ISO** booten und Bootloader, seriellen Login, Gastkernel, Dateisystem und Benutzerkonfiguration validieren.
-2. **Offen:** Installierte Gastumgebung geordnet beenden und mindestens einen weiteren Disk-Boot qualifizieren.
-3. **Offen:** Geprüfte Basis unverändert sichern und ein QCOW2-Overlay mit explizitem Backing-File-Format `qcow2` erzeugen.
-4. **Offen:** Änderungen in der Arbeits-VM vornehmen, Arbeits-Overlay **bei ausgeschalteter VM** ersetzen und den unveränderten Referenzzustand nachweisen. Keine `qemu-img commit`-Operation auf die Referenzbasis anwenden.
+1. **PASS:** Erster Disk-Boot ohne ISO, serieller Root-Login, Gastkernel-/Dateisystem-/Netzwerkprüfung und sauberer Shutdown bestätigt.
+2. **Offen:** Zweiten unabhängigen Disk-Boot, Persistenz kleiner Änderungen und erneuten Shutdown nachweisen.
+3. **Offen:** Qualifizierte Basis unverändert absichern, Backup-/Recovery-Grenzen dokumentieren und ein QCOW2-Arbeits-Overlay mit explizitem Backing-File-Format `qcow2` erzeugen.
+4. **Offen:** Änderung in der Arbeits-VM nachweisen, Overlay **bei ausgeschalteter VM** kontrolliert erneuern und Rücksetzung gegen die unveränderte Referenz validieren. Keine `qemu-img commit`-Operation auf die Referenzbasis anwenden.
 
 Der Rücksetzmechanismus ist kein Backup des Host-Dateisystems. VirtIO-9P-Hostverzeichnisse bleiben von Gast-Datenträger-Snapshots unberührt und müssen separat kontrolliert werden.
 

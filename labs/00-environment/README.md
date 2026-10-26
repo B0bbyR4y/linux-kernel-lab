@@ -225,6 +225,53 @@ dpkg --audit
 
 Nach größeren Änderungen an Systemdiensten und der WSL-Integration ist es sinnvoll, die Ubuntu-Distribution für den folgenden QEMU/KVM-Test neu zu starten. Ein gezieltes `wsl --terminate Ubuntu` aus **Windows/PowerShell** beendet nur die genannte Distribution; vorher laufende Prozesse und offene Dateien darin ordnungsgemäß schließen. Anders als `wsl --shutdown` stoppt es nicht absichtlich sämtliche WSL-Distributionen.
 
+## KVM-Berechtigungen herstellen und überprüfen
+
+Wenn `/dev/kvm` existiert, der Geräteknoten `root:kvm` mit `crw-rw----` gehört und der normale Benutzer noch nicht Mitglied von `kvm` ist, ergänzen wir seine Gruppenmitgliedschaft. Die Arbeit erfolgt nicht als root; nur die Änderung an der Gruppendatenbank benötigt `sudo`.
+
+**Umgebung:** Ubuntu/WSL2 (Entwicklungs-Host) · **Shell:** Bash · **Arbeitsverzeichnis:** beliebig.
+
+**Voraussetzungen:** Erfolgreiche Paket- und `sudo`-Validierung, vorhandene Gruppe `kvm`, passend berechtigtes `/dev/kvm`. **Erwartetes Ergebnis:** Der Benutzer wird zusätzlich Mitglied der Gruppe `kvm` und erscheint im Gruppeneintrag. **Betroffene Dateien:** `/etc/group`, gegebenenfalls `/etc/gshadow`. **Projektdateien / Git-Versionierung:** keine.
+
+```bash
+sudo usermod -aG kvm "$USER"
+getent group kvm
+```
+
+`-aG` ergänzt eine zusätzliche Gruppe. Ohne `-a` könnte `usermod -G` bestehende zusätzliche Gruppenmitgliedschaften ersetzen. Die Änderung wird nicht rückwirkend auf laufende Prozesse und Shells angewandt.
+
+Nun in Ubuntu alle wichtigen Arbeiten beenden und die Shell verlassen:
+
+```bash
+exit
+```
+
+**Umgebung:** Windows · **Shell:** PowerShell · **Arbeitsverzeichnis:** beliebig.
+
+**Voraussetzungen:** Ubuntu-Sitzung verlassen, keine unerledigten Arbeiten oder wichtigen Hintergrundprozesse innerhalb dieser Distribution. **Erwartetes Ergebnis:** Die Distribution `Ubuntu` wird beendet und mit einer neuen Login-Sitzung gestartet. **Auswirkungen:** Prozesse in `Ubuntu` werden beendet; andere WSL-Distributionen werden nicht gezielt gestoppt. **Git-Versionierung:** keine.
+
+```powershell
+wsl --terminate Ubuntu
+wsl --distribution Ubuntu
+```
+
+**Umgebung:** Ubuntu/WSL2 (neue Sitzung des Entwicklungs-Hosts) · **Shell:** Bash · **Arbeitsverzeichnis:** beliebig.
+
+**Voraussetzung:** Erfolgreicher Neustart der Distribution. **Erwartetes Ergebnis:** `kvm` erscheint in `id -nG`, die Geräterechtigungen werden angezeigt und der Zugriffscheck meldet `KVM-Zugriff: OK`. **Dateien / Git-Versionierung:** keine.
+
+```bash
+id -nG
+ls -l /dev/kvm
+
+if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+    printf '%s\n' 'KVM-Zugriff: OK'
+else
+    printf '%s\n' 'KVM-Zugriff: NICHT VERFÜGBAR'
+fi
+```
+
+Dies validiert ausschließlich die **Dateisystemberechtigungen** für `/dev/kvm`, noch nicht den Betrieb des KVM-Accelerators. Ein tatsächlicher QEMU/KVM-Funktionstest wird separat dokumentiert, sobald Berechtigungen und Ablauf verifiziert sind. Falls `/dev/kvm` fehlt, weder blind Gruppen ändern noch Zugriff durch `chmod 666` erzwingen; QEMU mit TCG ist der alternative Weg.
+
 ## Weitere Einrichtung und Abschlusskriterien
 
 Nach der Bestandsaufnahme folgen Werkzeuginstallation, ein geprüftes Gast-Image, ein dokumentierter QEMU-Start, Zugriff auf die Gast-Shell und Dateiaustausch. Stufe 0 ist abgeschlossen, wenn der Gast wiederholt bootet, seine Kernel-Version und Bootmeldungen sichtbar sind, Dateien übertragen werden können und Herunterfahren sowie Wiederherstellung eines definierten Ausgangszustands funktionieren.

@@ -894,22 +894,66 @@ Quellen: [Alpine: Nach der Installation vom QEMU-Datenträger booten](https://wi
 
 Die **Version 3.24.3** bezieht sich auf das jetzt installierte System, während das geprüfte Installations-ISO **3.24.2** war. Der installierte Kernel `6.18.58-0-virt` ist vom vorherigen ISO-Kernel `6.18.52-0-virt` zu unterscheiden. Das installierte System ist bereits einmal vollständig gebootet und sauber heruntergefahren. Der zweite, unabhängige Disk-Boot und der Rücksetztest stehen noch aus.
 
-### Fortsetzung – Zweitstart und qualifizierte Referenzbasis
+### Qualifizierter Wiederanlauf und Persistenz (A1–A3)
 
-Als nächsten Schritt den identischen Disk-Boot ohne ISO **wiederholen**; hierbei nach der Anmeldung einen kleinen Persistenzmarker im Gast anlegen oder einen vorhandenen Marker prüfen, ihn nach erneutem Shutdown und Boot nachweisen und die Testdatei vor dem Einfrieren der Basis wieder entfernen. Den Bootvorgang, Gast-Kernel, Dateisystem, seriellen Login und Shutdown erneut qualifizieren. Die übrige Konfiguration soll unverändert bleiben.
+**Ergebnis: PASS.** Vor dem zweiten Disk-Boot wurden `main` und `origin/main` als identisch (`e53c2d1732a7fb8d502666bce5fbfd381d7e5a0f`) und der Arbeitsbaum als sauber bestätigt. Keine QEMU-Instanz lief. Das zunächst noch beschreibbare Basisimage hatte eine virtuelle Größe von 8 GiB, Dateimodus `0600`, rund 102 MiB Belegung und `corrupt: false`.
 
-Danach **bei vollständig ausgeschalteter VM** das Basisimage als schreibgeschützte Referenz absichern, die Referenz samt ihrem unveränderlichen Backing-File-Pfad dokumentieren und mit `qemu-img create -f qcow2 -F qcow2 -b …` ein Arbeits-Overlay (`build/images/alpine-work.qcow2`) erzeugen. Vor dem ersten Overlay-Boot `qemu-img info --backing-chain` zur Prüfung verwenden; spätere Arbeiten ausschließlich auf dem Overlay ausführen. Im Overlay eine entbehrliche Gastdatei erzeugen, den Gast sauber beenden, das Overlay im ausgeschalteten Zustand kontrolliert neu erzeugen und bestätigen, dass diese Datei verschwunden ist und die Basis unverändert blieb.
+Der zweite Disk-Boot erfolgte ohne ISO mit dem identischen QEMU-Aufruf aus Schritt 5. OpenRC `0.63.2`, Alpine `3.24.3`, Kernel `6.18.58-0-virt`, serieller Login über `ttyS0`, `/dev/vda3` als schreibbares ext4-Root, `/dev/vda1` als `/boot` und DHCP über `eth0` waren unverändert funktionsfähig. Im Gast wurde `/root/stage0-persistence-marker.txt` (51 Bytes, Modus `0600`) mit dem Text `linux-kernel-lab | stage0 | persistence check | v1` angelegt und mit `sync` synchronisiert. Der SHA-256-Wert der **Testdatei** lautete `a20060ad64a438f30d9a8dbdb4fc5d54f3d02e003fa7ebb990bd87f997fab829`.
 
-**Sicherheit und Wiederherstellung:** Keine Overlay-Neuanlage während die VM läuft; Basis nicht mit QEMU beschreibbar starten oder durch `qemu-img commit` verändern. Ein Overlay ist keine unabhängige Sicherung des Basisimages: Wenn die Basis verloren geht oder geändert wird, kann das Overlay nicht mehr korrekt darauf aufbauen. Änderungen in per VirtIO-9P freigegebenen Hostordnern werden durch Overlay-Rücksetzung **nicht** rückgängig gemacht. Konkrete Befehle und Prüfungen für die abschließende Baseline-/Rollback-Validierung werden nach dem Zweitstart ergänzt.
+Nach `poweroff` und einem **dritten unabhängigen Disk-Boot** war die Datei noch vorhanden; `sha256sum -c` ergab `OK`. Anschließend wurde ausschließlich diese Datei nach erneuter Hashprüfung kontrolliert gelöscht, `sync` ausgeführt und der Gast über `poweroff` geordnet heruntergefahren. Hostseitig war QEMU beendet. `qemu-img check -f qcow2 build/images/alpine-base.qcow2` meldete `No errors were found on the image.`; `qemu-img info` zeigte `corrupt: false`, 8 GiB virtuell und 108068864 Bytes Dateilänge (rund 103 MiB). Der Git-Arbeitsbaum blieb sauber.
 
-### Weitere Schritte (noch nicht durchgeführt)
+**Bewertung:** Wiederholter Disk-Boot, serielle Anmeldung, schreibbare Dateisysteme, geordneter Shutdown und Dateipersistenz über einen vollständigen Neustart sind qualifiziert. Ein QCOW2-Metadatencheck ersetzt keinen vollständigen Gastdateisystem- oder Backup-Test.
 
-1. **PASS:** Erster Disk-Boot ohne ISO, serieller Root-Login, Gastkernel-/Dateisystem-/Netzwerkprüfung und sauberer Shutdown bestätigt.
-2. **Offen:** Zweiten unabhängigen Disk-Boot, Persistenz kleiner Änderungen und erneuten Shutdown nachweisen.
-3. **Offen:** Qualifizierte Basis unverändert absichern, Backup-/Recovery-Grenzen dokumentieren und ein QCOW2-Arbeits-Overlay mit explizitem Backing-File-Format `qcow2` erzeugen.
-4. **Offen:** Änderung in der Arbeits-VM nachweisen, Overlay **bei ausgeschalteter VM** kontrolliert erneuern und Rücksetzung gegen die unveränderte Referenz validieren. Keine `qemu-img commit`-Operation auf die Referenzbasis anwenden.
+### Schreibgeschützte Referenz und Sicherheitskopie (B1–B2)
 
-Der Rücksetzmechanismus ist kein Backup des Host-Dateisystems. VirtIO-9P-Hostverzeichnisse bleiben von Gast-Datenträger-Snapshots unberührt und müssen separat kontrolliert werden.
+**Ergebnis: PASS.** Bei vollständig ausgeschalteter VM wurde der bytegenaue SHA-256-Wert der Basis ermittelt und unter `build/reports/stage0/alpine-base.sha256` lokal gespeichert:
+
+```text
+4e8b4d823498daf13e97ec8738636c537b5a7cee7a8df9bb108d1a127d2709c4  build/images/alpine-base.qcow2
+```
+
+Das Basisimage wurde mit `chmod 0444` schreibgeschützt und danach erneut erfolgreich gegen das Manifest geprüft. Eine separate Kopie unter `build/backups/alpine-base.qcow2` wurde ohne Reflink angelegt, per SHA-256 und `qemu-img check -f qcow2` geprüft sowie ebenfalls auf Modus `0444` gesetzt. Quelle und Kopie sind mit 108068864 Bytes byteidentisch. Die Sicherung ist **nicht** Teil der späteren Backing-Chain.
+
+**Grenzen:** Dateimodus `0444` ist Schutz gegen unbeabsichtigte Schreibvorgänge, keine absolute Unveränderlichkeitsgarantie. Der dokumentierte SHA-256-Wert identifiziert **diese lokale Installation**; eine unabhängig wiederholte Alpine-Installation kann einen anderen Hash ergeben. Referenz und Backup liegen weiterhin innerhalb derselben WSL2-Dateisystemumgebung. Gegen den Verlust der WSL2-VHDX oder des physischen Datenträgers schützt erst eine extern aufbewahrte Sicherung. Keine weitere direkte schreibbare Ausführung der Basis, kein `qemu-img commit` auf die Basis.
+
+### Arbeits-Overlay und Backing-Chain (C1)
+
+**Ergebnis: PASS für Erstellung und statische Konsistenz; erster Overlay-Gaststart noch offen.** Mit QEMU 10.2.1 wurde nach Hash- und Zustandsprüfung ein neues QCOW2-Overlay zunächst in einem privaten temporären Verzeichnis erstellt, vor Veröffentlichung mit `qemu-img info --output=json` und `qemu-img check` geprüft und anschließend ohne Überschreiben unter `build/images/alpine-work.qcow2` veröffentlicht. Die maßgebliche Erstellung verwendet die expliziten Formatoptionen:
+
+```bash
+cd "$HOME/linux-kernel-lab" || exit 1
+BASE="$PWD/build/images/alpine-base.qcow2"
+OVERLAY="$PWD/build/images/alpine-work.qcow2"
+
+# Nur bei vollständig ausgeschalteter VM und noch nicht vorhandenem Overlay.
+if [ -e "$OVERLAY" ] || [ -L "$OVERLAY" ]; then
+    echo "ABBRUCH: Arbeits-Overlay existiert bereits." >&2
+else
+    ( umask 077; qemu-img create -f qcow2 -F qcow2 -b "$BASE" "$OVERLAY" )
+fi
+
+qemu-img info --backing-chain "$OVERLAY"
+```
+
+Die tatsächlich qualifizierte Backing-Chain besitzt genau zwei Elemente:
+
+| Datenträger | Rolle | Modus | Auswertung |
+| --- | --- | --- | --- |
+| `build/images/alpine-work.qcow2` | beschreibbares Overlay | `0600` | QCOW2, virtuell 8 GiB, anfänglich rund 196 KiB, `corrupt: false` |
+| `build/images/alpine-base.qcow2` | schreibgeschütztes Backing File | `0444` | QCOW2, virtuell 8 GiB, 108068864 Bytes, `corrupt: false` |
+
+Im Overlay ist als Backing File der **absolute** Pfad `/home/bruno/linux-kernel-lab/build/images/alpine-base.qcow2` und als Backing-Format ausdrücklich `qcow2` hinterlegt. Nach der Erstellung wurden die SHA-256-Prüfungen für Basis und Backup erneut mit `OK` abgeschlossen. Die Arbeitsdatei ist noch nicht gestartet oder durch einen Gast verändert worden.
+
+Der absolute Backing-Pfad ist an diese lokale Installation gebunden. Wird das Lab verschoben, muss die Backing-Chain überprüft und der Pfad kontrolliert angepasst oder ein neues Overlay angelegt werden; niemals blind vorhandene Images überschreiben. Overlays benötigen weiterhin die **inhaltlich unveränderte** Basis. Der Austausch eines Overlays ist ausschließlich bei vollständig ausgeschalteter VM zulässig und ist **kein** Backup des Basisimages. Über VirtIO-9P exportierte Hostverzeichnisse gehören nicht zum QCOW2-Datenträger und werden durch einen Overlay-Rollback nicht zurückgesetzt.
+
+### Verbleibende Schritte
+
+1. **PASS:** Persistenter erster, zweiter und dritter Boot, SHA-256-basierter Persistenznachweis, Bereinigung der Testdatei und sauberer Shutdown.
+2. **PASS:** QCOW2-Konsistenzprüfung, fixierte Referenz mit Hash und Schreibschutz `0444`, verifizierte separate Sicherheitskopie.
+3. **PASS:** Arbeits-Overlay angelegt und seine zweistufige Backing-Chain sowie die unveränderte Basis validiert.
+4. **Offen:** Gast erstmals ausschließlich über `alpine-work.qcow2` starten, eine entbehrliche Änderung persistent schreiben und nach Shutdown nur im Overlay nachweisen.
+5. **Offen:** Overlay bei ausgeschalteter VM kontrolliert ersetzen, Gast erneut starten, Abwesenheit der Änderung nachweisen und die unveränderten Basis- und Backup-Hashes bestätigen.
+6. **Offen:** Gesamt-Abnahmekriterien von Stufe 0 anhand des tatsächlich bestandenen Rollbacks abschließen und reproduzierbare Start-/Rollback-Befehle konsolidieren.
 
 ## Weitere Einrichtung und Abschlusskriterien
 

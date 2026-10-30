@@ -918,7 +918,7 @@ Das Basisimage wurde mit `chmod 0444` schreibgeschützt und danach erneut erfolg
 
 ### Arbeits-Overlay und Backing-Chain (C1)
 
-**Ergebnis: PASS für Erstellung und statische Konsistenz; erster Overlay-Gaststart noch offen.** Mit QEMU 10.2.1 wurde nach Hash- und Zustandsprüfung ein neues QCOW2-Overlay zunächst in einem privaten temporären Verzeichnis erstellt, vor Veröffentlichung mit `qemu-img info --output=json` und `qemu-img check` geprüft und anschließend ohne Überschreiben unter `build/images/alpine-work.qcow2` veröffentlicht. Die maßgebliche Erstellung verwendet die expliziten Formatoptionen:
+**Ergebnis: PASS für Erstellung und statische Konsistenz.** Mit QEMU 10.2.1 wurde nach Hash- und Zustandsprüfung ein neues QCOW2-Overlay zunächst in einem privaten temporären Verzeichnis erstellt, vor Veröffentlichung mit `qemu-img info --output=json` und `qemu-img check` geprüft und anschließend ohne Überschreiben unter `build/images/alpine-work.qcow2` veröffentlicht. Die maßgebliche Erstellung verwendet die expliziten Formatoptionen:
 
 ```bash
 cd "$HOME/linux-kernel-lab" || exit 1
@@ -942,17 +942,33 @@ Die tatsächlich qualifizierte Backing-Chain besitzt genau zwei Elemente:
 | `build/images/alpine-work.qcow2` | beschreibbares Overlay | `0600` | QCOW2, virtuell 8 GiB, anfänglich rund 196 KiB, `corrupt: false` |
 | `build/images/alpine-base.qcow2` | schreibgeschütztes Backing File | `0444` | QCOW2, virtuell 8 GiB, 108068864 Bytes, `corrupt: false` |
 
-Im Overlay ist als Backing File der **absolute** Pfad `/home/bruno/linux-kernel-lab/build/images/alpine-base.qcow2` und als Backing-Format ausdrücklich `qcow2` hinterlegt. Nach der Erstellung wurden die SHA-256-Prüfungen für Basis und Backup erneut mit `OK` abgeschlossen. Die Arbeitsdatei ist noch nicht gestartet oder durch einen Gast verändert worden.
+Im Overlay ist als Backing File der **absolute** Pfad `/home/bruno/linux-kernel-lab/build/images/alpine-base.qcow2` und als Backing-Format ausdrücklich `qcow2` hinterlegt. Nach der Erstellung wurden die SHA-256-Prüfungen für Basis und Backup erneut mit `OK` abgeschlossen. Der initiale Overlay-Gaststart und die erste Gast-Schreiboperation wurden anschließend in C2 erfolgreich validiert.
 
 Der absolute Backing-Pfad ist an diese lokale Installation gebunden. Wird das Lab verschoben, muss die Backing-Chain überprüft und der Pfad kontrolliert angepasst oder ein neues Overlay angelegt werden; niemals blind vorhandene Images überschreiben. Overlays benötigen weiterhin die **inhaltlich unveränderte** Basis. Der Austausch eines Overlays ist ausschließlich bei vollständig ausgeschalteter VM zulässig und ist **kein** Backup des Basisimages. Über VirtIO-9P exportierte Hostverzeichnisse gehören nicht zum QCOW2-Datenträger und werden durch einen Overlay-Rollback nicht zurückgesetzt.
+
+### Erster Gastbetrieb über das Arbeits-Overlay (C2)
+
+**Ergebnis: PASS.** Der lokale Checkout wurde per `git fetch origin` und `git merge --ff-only origin/main` erfolgreich auf `4c02c2f9d559bc6438505ff4f9ecc64a09e105f5` synchronisiert; der Git-Arbeitsbaum war sauber. Vor dem Start waren kein QEMU-Prozess aktiv, Referenz- und Backup-Hash jeweils `OK`, die zweistufige Backing-Chain korrekt sowie die Dateimodi `0444` (Basis) und `0600` (Overlay) unverändert.
+
+Der Gast wurde mit den bereits qualifizierten QEMU-Optionen (`-machine q35 -accel kvm -m 512M -smp 1 -boot c -nic user,model=virtio-net-pci -nographic`) gestartet, nun jedoch **ausschließlich** mit:
+
+```bash
+-drive file="$HOME/linux-kernel-lab/build/images/alpine-work.qcow2",format=qcow2,if=virtio
+```
+
+OpenRC `0.63.2`, serieller Root-Login über `ttyS0`, Kernel `6.18.58-0-virt`, `/dev/vda3` als schreibbares ext4-Root sowie DHCP/NAT funktionierten. Im Gast wurde die 50 Byte große Datei `/root/stage0-overlay-rollback-marker.txt` (Modus `0600`) angelegt, `sync` ausgeführt und ihr Inhalt `linux-kernel-lab | stage0 | overlay rollback | v1` gelesen. Ihr SHA-256-Wert ist `e77cf64f15328a83c1ace55b2366928dbc602786c5bc3cd27af7bc3551bedd5c`.
+
+Nach dem geordneten `poweroff` war QEMU vollständig beendet. Die reale Overlay-Belegung war von rund **196 KiB auf 2,32 MiB** gewachsen (Dateilänge 2490368 Bytes). `qemu-img check -f qcow2 build/images/alpine-work.qcow2` meldete `No errors were found on the image.`; das Basis-Manifest wurde mit `sha256sum -c` erneut mit `OK` bestätigt. Der Git-Arbeitsbaum blieb sauber. Es gab keine erkennbaren Blocker.
+
+**Abgrenzung:** Der erste Overlay-Boot und das Wachstum bei unverändertem Basis-Hash sind qualifiziert. Ob die Testdatei einen *erneuten* Overlay-Gaststart übersteht, muss vor dem Zurücksetzen separat im Gast nachgewiesen werden. Erst nach diesem Test wird das Overlay bei ausgeschalteter VM kontrolliert ersetzt; ein laufendes oder noch benötigtes Overlay darf nicht gelöscht werden.
 
 ### Verbleibende Schritte
 
 1. **PASS:** Persistenter erster, zweiter und dritter Boot, SHA-256-basierter Persistenznachweis, Bereinigung der Testdatei und sauberer Shutdown.
 2. **PASS:** QCOW2-Konsistenzprüfung, fixierte Referenz mit Hash und Schreibschutz `0444`, verifizierte separate Sicherheitskopie.
 3. **PASS:** Arbeits-Overlay angelegt und seine zweistufige Backing-Chain sowie die unveränderte Basis validiert.
-4. **Offen:** Gast erstmals ausschließlich über `alpine-work.qcow2` starten, eine entbehrliche Änderung persistent schreiben und nach Shutdown nur im Overlay nachweisen.
-5. **Offen:** Overlay bei ausgeschalteter VM kontrolliert ersetzen, Gast erneut starten, Abwesenheit der Änderung nachweisen und die unveränderten Basis- und Backup-Hashes bestätigen.
+4. **PASS:** Gast erstmals ausschließlich über `alpine-work.qcow2` gestartet, Rollback-Marker angelegt, Overlay-Wachstum, intakte QCOW2-Struktur und unveränderter Basis-Hash nach Shutdown bestätigt.
+5. **Offen:** Rollback-Marker nach einem weiteren Overlay-Boot im Gast per SHA-256 bestätigen; danach bei ausgeschalteter VM Overlay kontrolliert ersetzen, Gast starten, Abwesenheit der Änderung nachweisen sowie Basis- und Backup-Hashes erneut prüfen.
 6. **Offen:** Gesamt-Abnahmekriterien von Stufe 0 anhand des tatsächlich bestandenen Rollbacks abschließen und reproduzierbare Start-/Rollback-Befehle konsolidieren.
 
 ## Weitere Einrichtung und Abschlusskriterien

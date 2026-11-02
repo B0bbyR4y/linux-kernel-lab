@@ -4,7 +4,7 @@
 
 Windows dient als Arbeitsplatz, Ubuntu unter WSL2 als Build-Umgebung und ein Linux-Gast in QEMU als Testziel. Die Rollen erläutert das [Nachschlagewerk](../../docs/Linux_Kernel_und_Embedded_Linux_Nachschlagewerk.md). Ablage- und Befehlsregeln stehen in der [Repository-Struktur](../../docs/REPOSITORY_STRUCTURE.md).
 
-Diese Anleitung enthält die Bestandsaufnahme und den Einstieg in die versionsabhängige Einrichtung der Werkzeuge. Installation, Gast-Image und QEMU-Start werden anhand der ermittelten Architektur und Versionen schrittweise ergänzt und validiert. Sie enthält noch keinen ausführbaren QEMU-Gaststart. Der eigene Kernel-Build folgt in Stufe 2.
+Diese Anleitung dokumentiert die schrittweise Einrichtung und **erfolgreiche Qualifizierung** der WSL2-/QEMU-Testumgebung einschließlich serieller Konsole, VirtIO-9P-Dateiaustausch, persistenter Alpine-Installation und reproduzierbarem QCOW2-Rollback. Für die laufende Arbeit stehen die [Standardbefehle für Start und Reset](#standardbetrieb-nach-stufe-0) am Ende; die vorangehenden Abschnitte enthalten den nachvollziehbaren Aufbau und seine Prüfungen. Der eigene Kernel-Build folgt in Stufe 2.
 
 Die folgenden Abfragen können bereits vor dem Klonen des Repositorys ausgeführt werden. Sie benötigen keine Administratorrechte und verändern keine Konfiguration. Bei fehlendem Ubuntu oder WSL 1 zunächst diesen Befund klären; Installations- oder Konvertierungsbefehle folgen dann passend zur Umgebung.
 
@@ -867,7 +867,7 @@ qemu-img info "$HOME/linux-kernel-lab/build/images/alpine-base.qcow2"
 git -C "$HOME/linux-kernel-lab" status --short --branch
 ```
 
-**Noch kein Overlay erstellen.** Erst nach dem erfolgreichen Disk-Boot samt serieller Anmeldung und Shutdown sowie einem späteren erneuten Boot wird die Basis als qualifizierter Ausgangszustand eingefroren. Danach entsteht die separate Arbeitskopie mit Backing File.
+**Historischer Sicherheitshinweis für den Erstaufbau:** In diesem Schritt wurde bewusst noch kein Overlay erstellt. Erst nach weiteren Boot- und Persistenzprüfungen wurde die Basis als qualifizierter Ausgangszustand eingefroren; das anschließend erstellte Arbeits-Overlay ist inzwischen ebenfalls validiert (siehe A1–D2.4).
 
 Quellen: [Alpine: Nach der Installation vom QEMU-Datenträger booten](https://wiki.alpinelinux.org/wiki/Install_Alpine_in_QEMU), [Alpine: serielle Konsole installieren und konfigurieren](https://wiki.alpinelinux.org/wiki/Enable_Serial_Console_on_Boot), [QEMU: `-nographic`](https://www.qemu.org/docs/master/system/qemu-manpage.html).
 
@@ -892,7 +892,7 @@ Quellen: [Alpine: Nach der Installation vom QEMU-Datenträger booten](https://wi
 | QCOW2 danach | virtuelle 8 GiB, reale `102 MiB`, `corrupt: false` |
 | Git-Status | sauber: `## main...origin/main` |
 
-Die **Version 3.24.3** bezieht sich auf das jetzt installierte System, während das geprüfte Installations-ISO **3.24.2** war. Der installierte Kernel `6.18.58-0-virt` ist vom vorherigen ISO-Kernel `6.18.52-0-virt` zu unterscheiden. Das installierte System ist bereits einmal vollständig gebootet und sauber heruntergefahren. Der zweite, unabhängige Disk-Boot und der Rücksetztest stehen noch aus.
+Die **Version 3.24.3** bezieht sich auf das jetzt installierte System, während das geprüfte Installations-ISO **3.24.2** war. Der installierte Kernel `6.18.58-0-virt` ist vom vorherigen ISO-Kernel `6.18.52-0-virt` zu unterscheiden. Der hier beschriebene erste Disk-Boot war der damalige Ausgangspunkt. Die unabhängigen Folge-Boots, die Persistenzprüfung und der Rücksetztest wurden in den nachfolgenden Abschnitten A1–D2.4 erfolgreich abgeschlossen.
 
 ### Qualifizierter Wiederanlauf und Persistenz (A1–A3)
 
@@ -960,7 +960,7 @@ OpenRC `0.63.2`, serieller Root-Login über `ttyS0`, Kernel `6.18.58-0-virt`, `/
 
 Nach dem geordneten `poweroff` war QEMU vollständig beendet. Die reale Overlay-Belegung war von rund **196 KiB auf 2,32 MiB** gewachsen (Dateilänge 2490368 Bytes). `qemu-img check -f qcow2 build/images/alpine-work.qcow2` meldete `No errors were found on the image.`; das Basis-Manifest wurde mit `sha256sum -c` erneut mit `OK` bestätigt. Der Git-Arbeitsbaum blieb sauber. Es gab keine erkennbaren Blocker.
 
-**Abgrenzung:** Der erste Overlay-Boot und das Wachstum bei unverändertem Basis-Hash sind qualifiziert. Ob die Testdatei einen *erneuten* Overlay-Gaststart übersteht, muss vor dem Zurücksetzen separat im Gast nachgewiesen werden. Erst nach diesem Test wird das Overlay bei ausgeschalteter VM kontrolliert ersetzt; ein laufendes oder noch benötigtes Overlay darf nicht gelöscht werden.
+**Abgrenzung des damaligen Zwischenstands:** Der erste Overlay-Boot und das Wachstum bei unverändertem Basis-Hash wurden hier qualifiziert. Die Persistenz der Testdatei wurde anschließend in D1 und die Rücksetzung in D2.3 nachgewiesen. Ein laufendes oder noch benötigtes Overlay darf weiterhin niemals gelöscht werden.
 
 ### Erneuter Overlay-Boot und Persistenz des Rollback-Markers (D1)
 
@@ -996,19 +996,156 @@ Alpine wurde mit unverändertem QEMU-Aufruf **über das neue** `build/images/alp
 
 Nach geordnetem `poweroff` war QEMU beendet; `qemu-img check -f qcow2 build/images/alpine-work.qcow2` meldete `No errors were found on the image.` (28 von 131072 Clustern belegt; Image-Endoffset 2359296 Bytes). `qemu-img info --backing-chain` zeigte weiterhin das neue Overlay (rund **2,19 MiB** tatsächlich belegt, 2359296 Bytes Dateilänge, 8 GiB virtuell) und die unveränderte Basis (108068864 Bytes); beide mit `corrupt: false`. Sowohl `sha256sum -c build/reports/stage0/alpine-base.sha256` als auch die separate Prüfung der Sicherheitskopie ergaben `OK`. Das temporäre Archiv existierte noch, der Git-Arbeitsbaum blieb sauber.
 
-**Bewertung:** Die vollständige Funktionskette **Marker persistent im alten Overlay → neues Overlay aus unveränderter Basis → Marker nach Neustart verschwunden** ist qualifiziert. Der ausgeführte Rollback wurde damit unabhängig von der reinen QCOW2-Metadatenprüfung nachgewiesen. **Noch offen:** Ausschließlich die kontrollierte Bereinigung des archivierten alten Overlays sowie die abschließende Zusammenführung der Stufe-0-Abnahmekriterien und der dauerhaften Bedienabläufe. Die vorhandene Arbeits-VM und die qualifizierte Referenzbasis dürfen bei der Bereinigung nicht verändert werden.
+**Bewertung:** Die vollständige Funktionskette **Marker persistent im alten Overlay → neues Overlay aus unveränderter Basis → Marker nach Neustart verschwunden** ist qualifiziert. Der ausgeführte Rollback wurde damit unabhängig von der reinen QCOW2-Metadatenprüfung nachgewiesen. Die Archivbereinigung wurde anschließend in D2.4 separat validiert; weder aktive Arbeitsebene noch Referenzbasis wurden dabei verändert.
 
-### Verbleibende Schritte
+### Kontrollierte Bereinigung der Rollback-Testartefakte (D2.4)
 
-1. **PASS:** Persistenter erster, zweiter und dritter Boot, SHA-256-basierter Persistenznachweis, Bereinigung der Testdatei und sauberer Shutdown.
-2. **PASS:** QCOW2-Konsistenzprüfung, fixierte Referenz mit Hash und Schreibschutz `0444`, verifizierte separate Sicherheitskopie.
-3. **PASS:** Arbeits-Overlay angelegt und seine zweistufige Backing-Chain sowie die unveränderte Basis validiert.
-4. **PASS:** Gast erstmals ausschließlich über `alpine-work.qcow2` gestartet, Rollback-Marker angelegt, Overlay-Wachstum, intakte QCOW2-Struktur und unveränderter Basis-Hash nach Shutdown bestätigt.
-5. **PASS für den Rollback:** Marker-Persistenz (D1), temporäre Archivierung (D2.1), neues Overlay (D2.2) und tatsächlicher Rollback mit Marker-Abwesenheit bei unveränderten Basis-/Backup-Hashes (D2.3). **Offen:** Temporäres altes Overlay und leere Archivverzeichnisse kontrolliert entfernen.
-6. **Offen:** Gesamt-Abnahmekriterien von Stufe 0 anhand des tatsächlich bestandenen Rollbacks abschließen und reproduzierbare Start-/Rollback-Befehle konsolidieren.
+**Ergebnis: PASS.** Der lokale `main` wurde per Fast-Forward auf `15403d9066fa1e20c0a78e9186ef876e5f7f1a1c` synchronisiert. Ohne laufenden QEMU-Prozess wurden Referenzbasis, aktives Overlay, Sicherheitskopie und das archivierte alte Overlay auf Existenz, regulären Dateityp und die erwarteten gegenseitigen Dateibeziehungen geprüft. Das Archiv war 3145728 Bytes groß und besaß genau einen Hardlink. SHA-256 von Referenzbasis und Backup ergaben jeweils `OK`; sowohl aktives als auch archiviertes Overlay bestanden `qemu-img check -f qcow2` ohne Fehler.
 
-## Weitere Einrichtung und Abschlusskriterien
+Anschließend wurde ausschließlich `build/archives/stage0/alpine-work-pre-rollback.qcow2` mit `unlink` entfernt. Die danach leeren Verzeichnisse `build/archives/stage0` und `build/archives` wurden erfolgreich per `rmdir` entfernt. Die Schlussprüfung bestätigte, dass Referenzbasis, aktuelles Overlay und Sicherheitskopie vorhanden bleiben. Basis- und Backup-Hash waren erneut `OK`; die aktive Backing-Chain enthält weiterhin nur `alpine-work.qcow2` (rund 2,19 MiB belegt) und `alpine-base.qcow2` (8 GiB virtuell, Modus `0444`). Der Git-Arbeitsbaum war sauber.
 
-Nach der Bestandsaufnahme folgen Werkzeuginstallation, ein geprüftes Gast-Image, ein dokumentierter QEMU-Start, Zugriff auf die Gast-Shell und Dateiaustausch. Stufe 0 ist abgeschlossen, wenn der Gast wiederholt bootet, seine Kernel-Version und Bootmeldungen sichtbar sind, Dateien übertragen werden können und Herunterfahren sowie Wiederherstellung eines definierten Ausgangszustands funktionieren.
+### Abnahme – Stufe 0 abgeschlossen
 
-Ein erfolgreicher Aufruf von `uname -r` in WSL bestätigt nur den WSL-Kernel. Der spätere gleiche Aufruf im Gast bestätigt den Gastkernel. Die konkrete Gast-Shell und deren Arbeitsverzeichnis werden in jedem entsprechenden Schritt separat angegeben.
+**Gesamtergebnis: PASS.** Folgende Kriterien wurden anhand tatsächlicher Gast- und Hostprüfungen erfüllt:
+
+| Kriterium | Nachweis |
+| --- | --- |
+| WSL2- und QEMU-/KVM-Umgebung | Werkzeuge, KVM-Zugriff und beschleunigter Gaststart qualifiziert |
+| Boot und serielle Konsole | Wiederholte Alpine-Starts, Bootmeldungen und Root-Login über `ttyS0` |
+| Trennung der Kernel | WSL2-Hostkernel und Alpine-Gastkernel gesondert geprüft |
+| Dateiübertragung Host ↔ Gast | Read-only und begrenzter schreibbarer VirtIO-9P-Export mit SHA-256-Test |
+| Persistente Gastinstallation | Disk-Boot ohne ISO, ext4-Root und Bootpartition, DHCP sowie geordneter Shutdown |
+| Persistenz im Gast | Marker über Neustart vorhanden und SHA-256-identisch; später kontrolliert entfernt |
+| Qualifizierte Basis | QCOW2-Konsistenz, SHA-256-Manifest, Modus `0444` und separate identische Sicherheitskopie |
+| Overlay-Betrieb | Korrekte Backing-Chain, schreibbares Overlay und persistenter Rollback-Marker |
+| Rollback | Nach Neuerstellung des Overlays fehlt der zuvor persistente Marker; Basis und Backup unverändert |
+| Aufräumen | Altes Test-Overlay und beide leeren Archivverzeichnisse entfernt; Git sauber |
+
+**Qualifizierter Referenz-Hash (lokale Installation):**
+`4e8b4d823498daf13e97ec8738636c537b5a7cee7a8df9bb108d1a127d2709c4`.
+
+Für diesen Arbeitsstand bleiben dauerhaft die Basis unter `build/images/alpine-base.qcow2`, das aktuelle Overlay unter `build/images/alpine-work.qcow2`, die separate Sicherung unter `build/backups/alpine-base.qcow2` und das lokale Manifest `build/reports/stage0/alpine-base.sha256`. Diese Dateien sind **nicht Git-versioniert**. Das Backup liegt auf derselben WSL2-Dateisystemumgebung und ist kein Ersatz für eine extern gespeicherte Sicherung.
+
+## Standardbetrieb nach Stufe 0
+
+Die folgenden Befehle gelten für die konkret eingerichtete x86_64-/KVM-Umgebung. **Ubuntu/WSL2 ist der QEMU-Host (Bash); Alpine läuft im QEMU-Gast (ash).** Die zugrunde liegenden Mechanismen erklärt [Abschnitt 6.1.6 des Nachschlagewerks](../../docs/Linux_Kernel_und_Embedded_Linux_Nachschlagewerk.md#616-persistente-qcow2-datenträger-und-rücksetzung). Der aktuelle Arbeitszustand liegt im Overlay; es darf nicht unmittelbar in die schreibgeschützte Basis geschrieben werden.
+
+### Arbeits-VM starten
+
+**Umgebung:** Ubuntu/WSL2 · **Shell:** Bash · **Arbeitsverzeichnis:** `~/linux-kernel-lab`. **Voraussetzungen:** Basis und Arbeits-Overlay vorhanden, QEMU ausgeschaltet, Hashmanifest gültig. **Dateiänderungen:** QEMU schreibt während des Gastbetriebs nur in das Arbeits-Overlay; keine Git-Änderungen.
+
+```bash
+cd "$HOME/linux-kernel-lab" || exit 1
+(
+    set -euo pipefail
+    if pgrep -af '[q]emu-system-x86_64'; then
+        echo "ABBRUCH: QEMU laeuft bereits."
+        exit 1
+    fi
+    sha256sum -c build/reports/stage0/alpine-base.sha256
+    qemu-img info --backing-chain build/images/alpine-work.qcow2
+    echo "PASS: Start-Preflight."
+)
+```
+
+**Nur bei `PASS`** die VM mit dem aktiven Overlay starten:
+
+```bash
+cd "$HOME/linux-kernel-lab" || exit 1
+qemu-system-x86_64 \
+    -machine q35 \
+    -accel kvm \
+    -m 512M \
+    -smp 1 \
+    -boot c \
+    -drive file="$HOME/linux-kernel-lab/build/images/alpine-work.qcow2",format=qcow2,if=virtio \
+    -nic user,model=virtio-net-pci \
+    -nographic
+```
+
+**Erwartetes Ergebnis:** OpenRC-Bootmeldungen, `alpine-lab login:`, Alpine-Kernel `6.18.58-0-virt` und Login über `ttyS0`. Im **Gast** beendet `poweroff` die VM geordnet. Die QEMU-Monitorfunktion `quit` ist kein Ersatz für diesen normalen Shutdown.
+
+### Arbeitszustand bewusst zurücksetzen (späterer Routinebetrieb)
+
+**Achtung: Dieser Ablauf verwirft ausdrücklich sämtliche bisherigen Änderungen im Arbeits-Overlay.** Nur bei vollständig ausgeschalteter VM verwenden, wenn keine Daten aus der Arbeitssitzung mehr benötigt werden. Die Mechanik wurde in D2.1–D2.4 mit einem temporär archivierten Overlay erfolgreich qualifiziert. Die nachstehende kompakte **Routinevariante ohne Archiv** wurde noch nicht separat als Ganzes ausgeführt; sie verwendet denselben validierten QCOW2-Neuerstellungsmechanismus, ergänzt jedoch eine explizite Bestätigung und einen atomaren Austausch des aktiven Overlay-Dateinamens.
+
+**Umgebung:** Ubuntu/WSL2 · **Shell:** Bash · **Arbeitsverzeichnis:** `~/linux-kernel-lab`. **Voraussetzungen:** VM ausgeschaltet, Basis-Modus `0444`, gültiges Referenzmanifest, reguläre existierende Arbeitsdatei, `qemu-img` und `python3`. **Dateiänderungen:** Das bestehende `build/images/alpine-work.qcow2` wird nach Bestätigung dauerhaft durch ein neues Overlay ersetzt; Basis, Backup und Manifest bleiben unangetastet. **Git-Versionierung:** keine.
+
+```bash
+cd "$HOME/linux-kernel-lab" || exit 1
+
+(
+    set -euo pipefail
+    umask 077
+
+    BASE="$PWD/build/images/alpine-base.qcow2"
+    WORK="$PWD/build/images/alpine-work.qcow2"
+    MANIFEST="build/reports/stage0/alpine-base.sha256"
+
+    if pgrep -af '[q]emu-system-x86_64'; then
+        echo "ABBRUCH: QEMU ist aktiv."
+        exit 1
+    fi
+
+    [ -f "$BASE" ] && [ ! -L "$BASE" ]
+    [ -f "$WORK" ] && [ ! -L "$WORK" ]
+    [ "$(stat -c %a "$BASE")" = "444" ]
+    sha256sum -c "$MANIFEST"
+
+    read -r -p "Alle Aenderungen im Arbeits-Overlay verwerfen? RESET eingeben: " CONFIRM
+    [ "$CONFIRM" = "RESET" ] || {
+        echo "Abgebrochen: Keine Datei veraendert."
+        exit 1
+    }
+
+    TMPDIR="$(mktemp -d "$PWD/build/images/.reset.XXXXXXXX")"
+    TEMP="$TMPDIR/alpine-work.qcow2"
+    trap 'rm -f -- "$TEMP"; rmdir -- "$TMPDIR"' EXIT
+
+    qemu-img create -f qcow2 -F qcow2 -b "$BASE" "$TEMP"
+    qemu-img check -f qcow2 "$TEMP"
+
+    qemu-img info --output=json "$TEMP" | python3 -c '
+import json
+import sys
+info = json.load(sys.stdin)
+if not (
+    info.get("format") == "qcow2"
+    and info.get("virtual-size") == 8589934592
+    and info.get("backing-filename") == sys.argv[1]
+    and info.get("backing-filename-format") == "qcow2"
+):
+    sys.exit("FAIL: Ungueltige Overlay-Metadaten.")
+print("PASS: Frisches Overlay validiert.")
+' "$BASE"
+
+    chmod 0600 "$TEMP"
+
+    # Gleicher Host-Datentraeger: Austausch des Dateinamens per rename.
+    # Das alte Overlay wird dabei bewusst und unwiderruflich verworfen.
+    mv -fT -- "$TEMP" "$WORK"
+    rmdir -- "$TMPDIR"
+    trap - EXIT
+
+    sha256sum -c "$MANIFEST"
+    qemu-img info --backing-chain "$WORK"
+    echo "PASS: Arbeitszustand auf die Referenzbasis zurueckgesetzt."
+)
+```
+
+**Erwartetes Ergebnis:** Neues kleines Overlay mit 8 GiB virtueller Kapazität, `qcow2`-Backing File auf die unveränderte Basis, SHA-256 der Basis `OK`. Änderungen aus der verworfenen Arbeits-VM sind beim nächsten Gaststart nicht mehr sichtbar. Keine Testarchive werden dauerhaft angelegt. Bei einer fehlgeschlagenen Prüfung **vor** `mv -fT` bleibt die bisherige Arbeitsdatei erhalten. Bei Schwierigkeiten **nach** dem Austausch gibt es ohne vorherige gesonderte Sicherung keinen Rückweg zum alten Overlay.
+
+Die Rücksetzung erfasst nur den Gastdatenträger. Dateien in VirtIO-9P-Hostfreigaben, Git-Arbeitskopien und Downloads werden davon nicht zurückgesetzt.
+
+### Nach einem kontrollierten Shutdown prüfen
+
+**Umgebung:** Ubuntu/WSL2 · **Shell:** Bash · **Arbeitsverzeichnis:** `~/linux-kernel-lab`. **Voraussetzung:** QEMU vollständig beendet. **Dateiänderungen:** keine.
+
+```bash
+cd "$HOME/linux-kernel-lab" || exit 1
+qemu-img check -f qcow2 build/images/alpine-work.qcow2
+sha256sum -c build/reports/stage0/alpine-base.sha256
+git status --short --branch
+```
+
+**Abschluss:** Der reguläre Stufe-0-Workflow ist reproduzierbar; Aufbau, Tests und Abnahmestände stehen in dieser README. Allgemeine technische Erklärungen und offizielle Quellen bleiben im Nachschlagewerk. Die nächste Lernstufe kann auf dem qualifizierten QEMU-Gast aufbauen.

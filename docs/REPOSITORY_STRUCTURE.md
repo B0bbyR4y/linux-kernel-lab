@@ -75,7 +75,7 @@ cat scripts/README.md
 
 **Ergebnis:** Terminalausgabe der Skript-Konventionen; keine erzeugten Dateien. **Versionierung:** keine Änderung.
 
-Die Bestandsaufnahme in Stufe 0 ist verzeichnisunabhängig und erzeugt keine Dateien. Installations- und Startbefehle werden erst mit festgelegten Werkzeug- und Gastversionen ergänzt.
+Die Bestandsaufnahme in Stufe 0 ist verzeichnisunabhängig und erzeugt keine Dateien. Die anhand der tatsächlich verwendeten Werkzeug- und Gastversionen validierten Befehle für Gaststart und Overlay-Rücksetzung stehen inzwischen in der [Stufe-0-Lab-Anleitung](../labs/00-environment/README.md#standardbetrieb-nach-stufe-0); die zugehörigen Artefakte bleiben lokal unter `build/`.
 
 ## Pflege und Versionierung
 

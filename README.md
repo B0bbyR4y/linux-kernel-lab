@@ -7,10 +7,10 @@ Dieses Lernprojekt verbindet vorhandene User-Space- und Embedded-Kenntnisse mit 
 ## Einstieg
 
 1. [Repository-Struktur und Befehlsregeln](docs/REPOSITORY_STRUCTURE.md) lesen.
-2. [Stufe 0: Bestandsaufnahme der Entwicklungsumgebung](labs/00-environment/README.md) durchführen.
+2. [Stufe 0: qualifizierte Entwicklungsumgebung und Lab-Anleitung](labs/00-environment/README.md) nachvollziehen; für den laufenden Betrieb die [Start- und Reset-Befehle](labs/00-environment/README.md#standardbetrieb-nach-stufe-0) verwenden.
 3. Das [fachliche Nachschlagewerk](docs/Linux_Kernel_und_Embedded_Linux_Nachschlagewerk.md) zum Verstehen und Wiederholen verwenden.
 
-Wir entwickeln unter Ubuntu in WSL2 und testen eigene Kernel in einem separaten QEMU-Gast. Stufe 0 enthält zunächst die Bestandsaufnahme; Installation und Gaststart werden auf die ermittelten Systemdaten abgestimmt. Der eigene Kernel-Build gehört zu Stufe 2.
+Wir entwickeln unter Ubuntu in WSL2 und testen eigene Kernel in einem separaten QEMU-Gast. **Stufe 0 wurde praktisch abgeschlossen:** KVM-Boot, serielle Konsole, Host-/Gast-Dateiaustausch, persistentes Alpine-System und QCOW2-Rollback wurden qualifiziert. Die dafür erzeugten Images und Prüfreports liegen lokal unter `build/` und werden nicht eingecheckt. Der eigene Kernel-Build gehört zu Stufe 2.
 
 ## Repository lokal beziehen
 

@@ -976,9 +976,17 @@ Nach geordnetem `poweroff` war QEMU beendet. Das Overlay hatte 3.145.728 Bytes D
 
 **Ergebnis: PASS.** Nach Synchronisation des lokalen `main` auf `88d8840247fdd096d1e45c9827c2503e92cf3e3d` wurden VM-Stillstand, schreibgeschützte Basis (Modus `0444`), unveränderter Basis-Hash und `qemu-img check -f qcow2` für das Arbeits-Overlay erfolgreich geprüft. Das bestehende Overlay wurde ohne Kopieren durch einen zusätzlichen Hardlink unter `build/archives/stage0/alpine-work-pre-rollback.qcow2` vorübergehend erhalten. Anschließend wurde ausschließlich der alte Name `build/images/alpine-work.qcow2` mit `unlink` entfernt.
 
-Die archivierte Datei enthält weiterhin den in D1 qualifizierten Arbeitszustand, belegt rund **2,95 MiB** und verweist auf die unveränderte absolute Backing-File-Adresse der Basis. `qemu-img info --backing-chain` und die separate SHA-256-Prüfung des Archivs waren erfolgreich, ebenso der Basis-Hash. QEMU war vollständig ausgeschaltet, der Git-Arbeitsbaum sauber. **Der aktive Overlay-Pfad ist frei; ein neues Overlay wurde noch nicht erstellt.**
+Die archivierte Datei enthält weiterhin den in D1 qualifizierten Arbeitszustand, belegt rund **2,95 MiB** und verweist auf die unveränderte absolute Backing-File-Adresse der Basis. `qemu-img info --backing-chain` und die separate SHA-256-Prüfung des Archivs waren erfolgreich, ebenso der Basis-Hash. QEMU war vollständig ausgeschaltet, der Git-Arbeitsbaum sauber. **Zu diesem Zeitpunkt** war der aktive Overlay-Pfad frei; das neue Overlay wurde erst im anschließenden D2.2 erzeugt.
 
 **Aufräumregel:** Das Archiv ist ausschließlich eine temporäre Rückfalloption zur erstmaligen Qualifizierung. Nach nachgewiesenem Rollback, unveränderter Referenz und fehlerfreiem Neustart wird die Archivdatei kontrolliert entfernt; ein anschließend leeres Verzeichnis `build/archives/stage0/` kann ebenfalls gelöscht werden. Keine ungenutzten Overlay-Generationen dauerhaft sammeln. Für Routine-Resets ist kein Archiv nötig, wenn der Arbeitszustand verworfen werden darf.
+
+### Neues Arbeits-Overlay für den Rollback (D2.2)
+
+**Ergebnis: PASS für die Neuerstellung und statische Validierung; Gast-Rollback noch offen.** Nach Fast-Forward des lokalen `main` auf `1940491c15d27d79d419391785037a0ab6bcd455` waren die Referenzbasis und ihre separate Sicherheitskopie SHA-256-identisch mit dem qualifizierten Stand. Das archivierte alte Overlay bestand `qemu-img check -f qcow2`. Kein QEMU-Prozess lief, die Referenz blieb im Modus `0444`, und unter dem regulären Arbeitsnamen existierte noch kein Overlay.
+
+Mit `qemu-img create -f qcow2 -F qcow2 -b "$BASE" "$TEMP"` wurde in einem temporären Unterverzeichnis ein **neues** Overlay erzeugt. JSON-Metadatenprüfung und `qemu-img check` bestanden; die Datei wurde im Modus `0600` ohne Überschreiben am Pfad `build/images/alpine-work.qcow2` veröffentlicht. `qemu-img info --backing-chain` zeigte genau zwei Images mit 8 GiB virtueller Kapazität: das neue Arbeits-Overlay (anfänglich etwa 196 KiB belegt, Dateilänge 196736 Bytes) und die unveränderte schreibgeschützte Basis. Backing-Pfad und Backing-Format (`qcow2`) stimmen überein. Nach Erstellung waren die Basis- und Backup-Hashes weiter `OK`; Git war sauber.
+
+Das alte Overlay bleibt temporär unter `build/archives/stage0/alpine-work-pre-rollback.qcow2` erhalten und ist **nicht** Teil der neuen Backing-Chain. Nächster Prüfschritt: Gast mit dem neuen Arbeits-Overlay starten, Abwesenheit von `/root/stage0-overlay-rollback-marker.txt` nachweisen, ordentlich herunterfahren und die Integrität von Arbeits-Overlay, Basis und Backup prüfen. Erst nach diesem Nachweis das temporäre Archiv kontrolliert entfernen.
 
 ### Verbleibende Schritte
 
@@ -986,7 +994,7 @@ Die archivierte Datei enthält weiterhin den in D1 qualifizierten Arbeitszustand
 2. **PASS:** QCOW2-Konsistenzprüfung, fixierte Referenz mit Hash und Schreibschutz `0444`, verifizierte separate Sicherheitskopie.
 3. **PASS:** Arbeits-Overlay angelegt und seine zweistufige Backing-Chain sowie die unveränderte Basis validiert.
 4. **PASS:** Gast erstmals ausschließlich über `alpine-work.qcow2` gestartet, Rollback-Marker angelegt, Overlay-Wachstum, intakte QCOW2-Struktur und unveränderter Basis-Hash nach Shutdown bestätigt.
-5. **Teilweise PASS:** Rollback-Marker ist nach Neustart persistent (D1); bisheriges Overlay ist erfolgreich temporär archiviert (D2.1). **Offen:** neues Overlay erstellen, Gast booten, Abwesenheit des Markers und unveränderte Basis-/Backup-Hashes nachweisen sowie Archiv anschließend entfernen.
+5. **Teilweise PASS:** Marker-Persistenz (D1), temporäre Archivierung (D2.1) und Erzeugung eines neuen, geprüften Arbeits-Overlays (D2.2). **Offen:** Gast mit dem neuen Overlay booten, Marker-Abwesenheit und unveränderte Basis-/Backup-Hashes nachweisen sowie das Archiv kontrolliert entfernen.
 6. **Offen:** Gesamt-Abnahmekriterien von Stufe 0 anhand des tatsächlich bestandenen Rollbacks abschließen und reproduzierbare Start-/Rollback-Befehle konsolidieren.
 
 ## Weitere Einrichtung und Abschlusskriterien

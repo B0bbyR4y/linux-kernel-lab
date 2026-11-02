@@ -158,9 +158,60 @@ Für die anschließende **klassische Alpine-Systeminstallation** wird der Live-G
 
 **Beobachteter Installationsstand:** `setup-alpine` wurde mit `vda` (8 GiB) und `sys` abgeschlossen; Alpine installierte `/boot` auf `vda1` sowie das System auf `vda3`. Im Log wurde für `6.18.58-0-virt` eine Initramfs-Datei erstellt, während die Live-ISO zuvor mit `6.18.52-0-virt` lief. Die Installationsmeldung allein belegt **nicht**, welchen Kernel der frisch installierte Datenträger tatsächlich bootet. Nach Shutdown wies `qemu-img info` weiterhin einen konsistenten 8-GiB-QCOW2-Datenträger mit rund 101 MiB tatsächlicher Belegung aus.
 
-Der erste **Disk-Boot ohne CD-ROM** mit QEMUs `-boot c` wurde erfolgreich durchgeführt. OpenRC `0.63.2` startete den installierten Kernel `6.18.58-0-virt`; das installierte Alpine meldet `VERSION_ID=3.24.3`, obwohl die Live-ISO die Version 3.24.2 hatte. Das ist mit der Installation aktueller Pakete aus dem Repository vereinbar. Die serielle Anmeldung über `/dev/ttyS0` funktionierte; `/proc/cmdline` enthielt den Kernelkonsolenparameter `console=ttyS0,9600` und `/etc/inittab` einen aktiven seriellen `getty`-Eintrag. Root lag als `ext4` auf `/dev/vda3` (rw), `/boot` auf `/dev/vda1`; Benutzer `lab`, Hostname `alpine-lab` und DHCP/NAT waren vorhanden. Nach geordnetem `poweroff` war die Basisdatei ein intaktes QCOW2-Image mit 8 GiB virtueller Kapazität und circa 102 MiB tatsächlicher Belegung. Der **erneute Disk-Boot und der Rücksetztest** sind noch ausstehend.
+Der erste **Disk-Boot ohne CD-ROM** mit QEMUs `-boot c` wurde erfolgreich durchgeführt. OpenRC `0.63.2` startete den installierten Kernel `6.18.58-0-virt`; das installierte Alpine meldet `VERSION_ID=3.24.3`, obwohl die Live-ISO die Version 3.24.2 hatte. Das ist mit der Installation aktueller Pakete aus dem Repository vereinbar. Die serielle Anmeldung über `/dev/ttyS0` funktionierte; `/proc/cmdline` enthielt den Kernelkonsolenparameter `console=ttyS0,9600` und `/etc/inittab` einen aktiven seriellen `getty`-Eintrag. Root lag als `ext4` auf `/dev/vda3` (rw), `/boot` auf `/dev/vda1`; Benutzer `lab`, Hostname `alpine-lab` und DHCP/NAT waren vorhanden. Nach geordnetem `poweroff` war die Basisdatei ein intaktes QCOW2-Image mit 8 GiB virtueller Kapazität und circa 102 MiB tatsächlicher Belegung. Der wiederholte Disk-Boot, die Dateipersistenz über einen weiteren Neustart und das spätere Einfrieren der QCOW2-Referenz wurden inzwischen praktisch nachgewiesen. Der anschließende Rollback wird getrennt qualifiziert. Den jeweiligen Teststatus und die konkreten Ausgaben hält ausschließlich die [Lab-Anleitung](../labs/00-environment/README.md) fest.
 
 Quellen: [Alpine: Installation in virtueller Maschine](https://wiki.alpinelinux.org/wiki/Installing_Alpine_in_a_virtual_machine), [QEMU: `qemu-img`](https://www.qemu.org/docs/master/tools/qemu-img.html).
+
+#### Die Ebenen der QCOW2-Backing-Chain verstehen
+
+Bei einer **Backing-Chain** bildet das schreibgeschützte Basisimage den gemeinsamen Ausgangszustand. Ein darüber liegendes, beschreibbares QCOW2-**Overlay** speichert geänderte virtuelle Blöcke. Beim Lesen verwendet QEMU zunächst Daten aus dem Overlay und greift für dort nicht abgelegte Blöcke auf das Backing File zurück. Dadurch erhält der Gast eine konsistente Sicht auf **einen** virtuellen Datenträger, obwohl der Host zwei Image-Dateien verwaltet. Innerhalb des Gasts bleibt der Datenträger beispielsweise `/dev/vda` mit seinen Partitionen `/dev/vda1` bis `/dev/vda3`; ein Overlay ist **keine zusätzliche Gastpartition**.
+
+```text
+QEMU-Gast: /dev/vda (8 GiB virtuell)
+             |
+             v
+build/images/alpine-work.qcow2     [schreibbar; nur Abweichungen]
+             |
+             | backing file, Format qcow2
+             v
+build/images/alpine-base.qcow2     [Referenz; nicht verändern]
+
+build/backups/alpine-base.qcow2    [separate Sicherung; NICHT Teil der Chain]
+```
+
+Mit `qemu-img create -f qcow2 -F qcow2 -b "$BASE" "$OVERLAY"` entsteht eine neue Arbeitsebene. **`-f qcow2`** bezeichnet das Format des neuen Overlays; **`-F qcow2`** das Format des Backing Files; **`-b`** dessen Pfad. Wird ein absoluter Backing-Pfad wie `/home/.../alpine-base.qcow2` gespeichert, ist die Chain zunächst unabhängig vom aktuellen Arbeitsverzeichnis, aber an diesen Dateisystempfad gebunden. Nach einem Verschieben der Basis sind die Verweise bewusst neu zu prüfen. Das Basisimage muss **inhaltlich identisch** bleiben. `qemu-img commit` kann Änderungen zurück in das Backing File schreiben und ist für unseren verwerfbaren Lab-Arbeitszustand daher ausgeschlossen.
+
+Im Gegensatz zu einem dauerhaften QCOW2-Overlay erzeugt die QEMU-Option `snapshot=on` beim Start eine vorübergehende Schreibebene. Sie eignet sich für einen nichtdestruktiven Preflight, ersetzt aber kein explizit kontrolliertes Arbeits-Overlay, dessen Zustand einen Gastneustart überdauern soll.
+
+#### Drei verschiedene Ebenen der Integritätsprüfung
+
+| Werkzeug | Was es prüft | Was es **nicht** beweist |
+| --- | --- | --- |
+| `qemu-img info IMAGE` | Format, virtuelle Größe, Host-Belegung, Backing-Metadaten und bei QCOW2 das Korruptionskennzeichen | Keine vollständige Prüfung aller Image-Daten oder Gastdateisysteme |
+| `qemu-img info --backing-chain OVERLAY` | Sichtbare Mitglieder und Verweise der Image-Kette | Weder einen erfolgreichen Gast-Boot noch einen unveränderten Basisinhalt |
+| `qemu-img check -f qcow2 IMAGE` | Interne Konsistenz des QCOW2-Formats; ohne `-r` kein Reparaturversuch | Keine inhaltliche ext4-Prüfung und keinen Persistenznachweis im Gast |
+| `sha256sum -c MANIFEST` | Byteidentität der betreffenden Datei gegenüber einer zuvor erfassten Prüfsumme | Keine Herkunftsauthentizität und keine semantische Korrektheit des Image-Inhalts |
+
+`qemu-img check -r` kann Metadaten reparieren und ist **nicht** Teil der normalen lesenden Validierung. Vor Konsistenz-, Kopier-, Archivierungs- oder Rücksetzvorgängen muss sichergestellt sein, dass keine VM das betroffene Image verwendet; ein Check während laufender Schreibzugriffe kann einen inkonsistenten Zwischenzustand liefern.
+
+Kompaktes Beispiel für rein lesende Prüfungen auf dem **WSL2-Host** (Bash; Arbeitsverzeichnis: Repository-Wurzel; Voraussetzung: VM vollständig ausgeschaltet; Dateiänderungen und Git-Versionierung: keine):
+
+```bash
+cd "$HOME/linux-kernel-lab" || exit 1
+qemu-img info --backing-chain build/images/alpine-work.qcow2
+qemu-img check -f qcow2 build/images/alpine-work.qcow2
+sha256sum -c build/reports/stage0/alpine-base.sha256
+```
+
+Die Prüfsumme der Basis ist eine Eigenschaft des **konkret qualifizierten lokalen Images**, kein universeller Hash für Alpine 3.24.x. Ein als `0444` schreibgeschütztes Image verhindert normale Schreibzugriffe, ist aber nicht unveränderlich: Der berechtigte Eigentümer kann seine Dateirechte wieder ändern, und privilegierte Prozesse können den Schutz umgehen. Zur Absicherung dient deshalb zusätzlich ein vor und nach Tests geprüfter SHA-256-Wert. Eine **separate byteidentische Sicherheitskopie** der Basis kann versehentliche Beschädigung oder Löschung auffangen; eine Kopie innerhalb derselben WSL2-VHDX schützt nicht vor dem Verlust der gesamten Entwicklungsumgebung.
+
+#### Persistenz, Rollback und saubere Artefaktverwaltung
+
+Ein sinnvoller Funktionstest besteht aus zwei unabhängigen Nachweisen: Zuerst wird im Gast ein entbehrlicher Marker auf dem Root-Dateisystem erzeugt und mit `sync` synchronisiert. Nach `poweroff` und erneutem Start **mit demselben Overlay** müssen Inhalt und SHA-256 unverändert vorhanden sein (**Persistenz**). Erst danach wird bei **ausgeschalteter** VM das alte Overlay durch eine neu erzeugte Arbeitsebene auf derselben Referenzbasis ersetzt. Nach erneutem Boot muss der Marker fehlen (**Rollback**). Dabei muss der Basis-Hash unverändert bleiben. Das bloße Fehlen eines Markers ohne vorherigen Persistenznachweis wäre ein schwächerer Test.
+
+Für die **erstmalige Qualifizierung** kann das bestehende Overlay kurzzeitig unter einem anderen Dateinamen aufbewahrt werden, damit ein Fehler beim Neuaufbau untersucht oder der alte Zustand wiederhergestellt werden kann. `ln QUELLE ZIEL` erzeugt auf demselben Dateisystem einen weiteren Hardlink auf **dieselbe Datei**; `unlink QUELLE` entfernt nur einen Namen. Solange mindestens ein Hardlink existiert, bleibt der Dateiinhalt erhalten. Ein Hardlink ist **keine unabhängige Sicherheitskopie**; bei Änderungen über einen Namen ändern sich dieselben Bytes auch über den anderen Namen. Der Austausch erfolgt nur bei angehaltener VM und nach Prüfung, dass das Ziel noch nicht existiert. Nach erfolgreich validiertem Rollback wird dieses Testarchiv bewusst entfernt; im **regulären Lab-Betrieb** ist seine dauerhafte Aufbewahrung unnötig. Nützliche Dauerartefakte sind die qualifizierte Basis, deren Sicherung, das Referenzmanifest und **ein** jeweils aktuelles Arbeits-Overlay.
+
+Ein Rollback über QCOW2 wirkt **nur** auf die in dieser Block-Chain gespeicherten Gastdaten. Schreibbare VirtIO-9P-Freigaben liegen auf dem Host und bleiben unberührt. Ebenso sind Git-Commits, Downloads und Hostdateien unabhängig von den Gast-Snapshots. Die vollständigen Befehlsfolgen mit Preflight, Pfadprüfungen, erwarteten Ausgaben und sicherer Bereinigung stehen in der [Stufe-0-Lab-Anleitung](../labs/00-environment/README.md); das Nachschlagewerk erläutert die zugrunde liegenden Regeln.
 
 ### 6.2 Reihenfolge der Einrichtung
 

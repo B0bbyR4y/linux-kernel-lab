@@ -962,13 +962,23 @@ Nach dem geordneten `poweroff` war QEMU vollständig beendet. Die reale Overlay-
 
 **Abgrenzung:** Der erste Overlay-Boot und das Wachstum bei unverändertem Basis-Hash sind qualifiziert. Ob die Testdatei einen *erneuten* Overlay-Gaststart übersteht, muss vor dem Zurücksetzen separat im Gast nachgewiesen werden. Erst nach diesem Test wird das Overlay bei ausgeschalteter VM kontrolliert ersetzt; ein laufendes oder noch benötigtes Overlay darf nicht gelöscht werden.
 
+### Erneuter Overlay-Boot und Persistenz des Rollback-Markers (D1)
+
+**Ergebnis: PASS.** Der lokale Checkout wurde per Fast-Forward auf `259d65120387b97380dc295bce153e2a13292ee8` synchronisiert. Vor dem Test waren keine QEMU-Prozesse aktiv, `sha256sum -c build/reports/stage0/alpine-base.sha256` ergab `OK`, und die zweistufige Backing-Chain war unverändert.
+
+Der Gast wurde erneut **ausschließlich über** `build/images/alpine-work.qcow2` gestartet. OpenRC `0.63.2`, serielle Anmeldung über `ttyS0`, Kernel `6.18.58-0-virt` und `/dev/vda3` als schreibbares ext4-Root funktionierten. Der in C2 erzeugte 50-Byte-Marker `/root/stage0-overlay-rollback-marker.txt` war nach einem vollständigen Shutdown und Neustart vorhanden; Inhalt und SHA-256-Prüfsumme `e77cf64f15328a83c1ace55b2366928dbc602786c5bc3cd27af7bc3551bedd5c` wurden mit `sha256sum -c` als `OK` bestätigt. **Der Marker wurde ausdrücklich nicht gelöscht.**
+
+Nach geordnetem `poweroff` war QEMU beendet. Das Overlay hatte 3.145.728 Bytes Dateilänge (rund 2,95 MiB Belegung); `qemu-img check -f qcow2` meldete `No errors were found on the image.`, `qemu-img info` `corrupt: false`, der Basis-Hash blieb `OK` und der Git-Arbeitsbaum sauber.
+
+**Nächste Sicherheitsgrenze:** Das alte Overlay bei vollständig ausgeschalteter VM zunächst unter einem anderen privaten Pfad **innerhalb desselben Dateisystems** aufbewahren, statt es sofort zu löschen. Ein frisches Overlay gegen die unveränderte Basis erzeugen und die neue Backing-Chain prüfen. Erst nach erfolgreichem Boot, Abwesenheit des Testmarkers und Hashprüfung der Basis darf das Archiv kontrolliert entfernt werden. Die vorübergehende Sicherung erleichtert Fehlerdiagnose und Rückkehr zum alten Arbeitszustand; sie ist keine dauerhafte Backup-Anforderung und schützt nicht vor Verlust der Basis.
+
 ### Verbleibende Schritte
 
 1. **PASS:** Persistenter erster, zweiter und dritter Boot, SHA-256-basierter Persistenznachweis, Bereinigung der Testdatei und sauberer Shutdown.
 2. **PASS:** QCOW2-Konsistenzprüfung, fixierte Referenz mit Hash und Schreibschutz `0444`, verifizierte separate Sicherheitskopie.
 3. **PASS:** Arbeits-Overlay angelegt und seine zweistufige Backing-Chain sowie die unveränderte Basis validiert.
 4. **PASS:** Gast erstmals ausschließlich über `alpine-work.qcow2` gestartet, Rollback-Marker angelegt, Overlay-Wachstum, intakte QCOW2-Struktur und unveränderter Basis-Hash nach Shutdown bestätigt.
-5. **Offen:** Rollback-Marker nach einem weiteren Overlay-Boot im Gast per SHA-256 bestätigen; danach bei ausgeschalteter VM Overlay kontrolliert ersetzen, Gast starten, Abwesenheit der Änderung nachweisen sowie Basis- und Backup-Hashes erneut prüfen.
+5. **Offen:** Der erneute Overlay-Boot und die Marker-Persistenz sind **PASS**. Nun das alte Overlay bei ausgeschalteter VM temporär archivieren, ein frisches Overlay erstellen, Gast booten, Marker-Abwesenheit und unveränderte Basis-/Backup-Hashes nachweisen; anschließend temporäres Archiv kontrolliert entfernen.
 6. **Offen:** Gesamt-Abnahmekriterien von Stufe 0 anhand des tatsächlich bestandenen Rollbacks abschließen und reproduzierbare Start-/Rollback-Befehle konsolidieren.
 
 ## Weitere Einrichtung und Abschlusskriterien

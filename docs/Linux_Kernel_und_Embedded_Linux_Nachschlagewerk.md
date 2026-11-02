@@ -76,6 +76,49 @@ Die Arbeitsumgebung nutzt Windows mit WSL2 Ubuntu für Quellen, Build und Werkze
 
 Die Stufe ist abgeschlossen, wenn der Gast reproduzierbar bootet, seine Kernel-Version erkennbar ist, Kernel-Meldungen auf der Konsole sichtbar sind und ein fehlgeschlagener Versuch durch einen Neustart des Gasts behoben werden kann. ARM-SoC, echte serielle Board-Konsole und U-Boot folgen später, wenn ihre Rolle im Gesamtsystem eingeführt ist.
 
+### Stufe 1: Linux-Systemarchitektur und Grundlagen
+
+Der durchgehende Leitfall ist ein `read()` aus einer C-Anwendung auf `/dev/zero`. Das Diagramm zeigt die **logische** Verarbeitung vom User Space über die System-Call-Grenze zum Kernel und zurück. Es stellt nicht die exakte Funktionsaufrufkette einer bestimmten Kernel-Version dar; `/dev/zero` erzeugt die gelesenen Nullbytes ohne externe Hardware.
+
+```mermaid
+flowchart TB
+    subgraph USER["User Space"]
+        APP["C-Anwendung<br/>read(fd, buffer, count)"]
+        LIBC["libc-Wrapper"]
+        APP --> LIBC
+    end
+    ABI["System-Call-Grenze<br/>Kernel-ABI"]
+    subgraph KERNEL["Kernel Space"]
+        SYSCALL["System-Call-Verarbeitung<br/>Dateideskriptor auflösen"]
+        VFS["Virtual File System (VFS)<br/>struct file / file_operations"]
+        DRIVER["Character-Device-Implementierung<br/>/dev/zero: Nullbytes bereitstellen"]
+        SYSCALL --> VFS --> DRIVER
+    end
+    LIBC --> ABI --> SYSCALL
+    DRIVER -. "Daten und Rückgabewert" .-> ABI
+    ABI -. "Rückkehr in User Space" .-> APP
+```
+
+Die Abschnitte bauen aufeinander auf; **Theorie und allgemeine Zusammenhänge** werden in diesem Nachschlagewerk ergänzt. **Befehle, praktische Prüfungen und bestätigte Ergebnisse** werden in `labs/01-system-architecture/README.md` dokumentiert. Für jedes Experiment sind Umgebung (Ubuntu/WSL2/Bash oder Alpine/QEMU/ash), Voraussetzungen, Soll-Ergebnis und Validierung zu benennen.
+
+| Abschnitt | Technischer Schwerpunkt / Lernziel | Geplantes Experiment im Alpine-Gast |
+| --- | --- | --- |
+| **1.1 – Systemarchitektur und Schutzgrenzen** | Kernel-Aufgaben und Subsysteme; User/Kernel Space, CPU-Privilegien, MMU, Prozessadressräume | Kernel- und Prozessinformationen unter `/proc` gegenüberstellen |
+| **1.2 – System Calls, libc und ABI** | C-Bibliotheksaufruf vs. System Call; Fehler/`errno`; `read()`, `write()` und `ioctl()` inklusive Request und Argumenten | Kleines C-Programm; `strace` für `read()` und `ioctl()` (z. B. `FIONREAD` auf einer Pipe); Fehlerfall |
+| **1.3 – Dateideskriptoren und VFS** | `fd`, Open-File-Description, `struct file`, Inode, Dentry und `file_operations`; Datei-Offsets | `open()`/`dup()`/`read()` vergleichen; `/proc/<PID>/fd` und `fdinfo` prüfen |
+| **1.4 – Dateitypen und virtuelle Dateisysteme** | Reguläre Dateien, procfs, sysfs, Geräteknoten und Mountpoints unterscheiden | Leseoperationen auf `/etc`, `/proc`, `/sys` und `/dev` vergleichen |
+| **1.5 – Geräte, Treiber und Device Model** | Character/Block Devices, Major/Minor, `/dev`, Bus-/Treiberbindung, sysfs; `ioctl()` im Gerätepfad | `/dev/zero`, `/dev/ttyS0`, `/dev/vda` und zugehörige sysfs-Einträge untersuchen |
+| **1.6 – Boot- und Prozessarchitektur** | Bootloader → Kernel → Root-Dateisystem → PID 1 → Dienste/Shell; Prozesse und Scheduling-Grundlagen | `/proc/cmdline`, PID 1, `/etc/inittab`, OpenRC-Dienste und Prozesshierarchie prüfen |
+| **1.7 – End-to-End-Pfad und Abnahme** | User-/Kernel-Grenze, VFS und Treiberoperation an einem Datenpfad zusammenführen | `read()` von `/dev/zero` nachvollziehen und mit regulärer Datei und procfs vergleichen |
+
+**Einordnung von `ioctl()`:** Abschnitt 1.2 erklärt die System-Call-Schnittstelle, Request-Codes, Datenargumente und die ABI. Abschnitt 1.5 ordnet sie dem Geräte- und Subsystempfad zu. Eine eigene `.unlocked_ioctl`-Implementierung, `_IO`-/`_IOR`-/`_IOW`-/`_IOWR`-Definitionen und Details des sicheren User-/Kernel-Datentransfers werden erst beim Character Device in **Stufe 4** praktisch umgesetzt.
+
+**Einordnung von OpenRC:** OpenRC ist nicht Alpine-spezifisch, sondern ein eigenständiges Service- und Init-Management-System. In der üblichen Alpine-Konfiguration ist **BusyBox `init` PID 1** und führt OpenRC-Skripte aus; OpenRC ist damit nicht automatisch selbst PID 1. Die tatsächlich laufende Implementierung wird in Abschnitt 1.6 überprüft. Die detaillierte Bootkette folgt wie geplant in Stufe 8.
+
+**Voraussetzungen für Stufe 3/4:** Vor dem ersten einfachen Kernel-Modul benötigen wir Schutzgrenzen, Kernel-/User-API-Unterschied, Prozesskontext und (aus Stufe 2) den passenden Kernel-Build. Vor dem eigenen Character Device müssen insbesondere `fd`, VFS, `file_operations` und User-/Kernel-Speichertransfer vertieft werden. Interrupts, DMA, Device Tree und Yocto sind dafür noch nicht nötig.
+
+Referenzen: [Linux VFS](https://docs.kernel.org/filesystems/vfs.html), [Linux `ioctl`-Schnittstellen](https://docs.kernel.org/driver-api/ioctl.html), [`read(2)`](https://man7.org/linux/man-pages/man2/read.2.html), [Alpine OpenRC](https://wiki.alpinelinux.org/wiki/OpenRC), [OpenRC User Guide](https://github.com/OpenRC/openrc/blob/master/user-guide.md).
+
 ## 5. Ausbauprinzip dieses Nachschlagewerks
 
 Neue Fachkapitel verwenden möglichst denselben Datenpfad: zuerst die beobachtbare User-Space-Schnittstelle, dann Kernel-Subsystem und Treiber, danach Gerätebindung, Hardwarebeschreibung, Boot und Image. Jedes Kapitel soll Zweck, Einordnung, zentrale Begriffe, ein kleines lauffähiges Beispiel, typische Fehler sowie Bezüge zu bereits erklärten Ebenen enthalten. Kommandos und Code werden erst mit der passenden Übung konkretisiert und mit der jeweils verwendeten Version abgeglichen. Ergebnisse einzelner Durchläufe und persönliche Fortschrittsstände gehören nicht in dieses Dokument.

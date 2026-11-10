@@ -294,3 +294,24 @@ Das Repository liegt vorgesehen unter `~/linux-kernel-lab` in WSL2. Gemeinsame W
 - [QEMU: Systememulation und Beschleuniger](https://www.qemu.org/docs/master/system/introduction.html)
 
 Die Referenzen beschreiben das Werkzeugverhalten. Die Auswahl unserer Lernschritte und der getrennten Testumgebung ist eine didaktische Entscheidung für dieses Projekt.
+
+
+## 7. Stufe 1 – Systemarchitektur und Grundlagen
+
+### 7.1 Kernel-Aufgaben, Privilegien und virtuelle Adressräume
+
+Der **Linux-Kernel** bildet den privilegierten Kern des Betriebssystems. Zu seinen Aufgaben zählen Prozessplanung und Scheduling, virtuelle Speicherverwaltung, Dateisysteme (einschließlich VFS), Netzwerk, Sicherheitskontrollen, Gerätetreiber und Interrupt-Verarbeitung. Shell, C-Bibliothek, Dienste und Anwendungen sind dagegen User-Space-Software. Linux nutzt eine monolithische, modular erweiterbare Kernel-Architektur: Ein geladenes Modul wird Teil des privilegierten Kernels und ist nicht automatisch gegen Kernel-Fehler isoliert.
+
+**CPU-Privilegienstufe und Betriebssystemberechtigung sind verschieden.** Ein gewöhnlicher x86_64-Prozess führt seinen Anwendungscode überwiegend in Ring 3 (User Mode) aus, der Kernel in Ring 0 (Kernel Mode). Auch ein Prozess mit UID 0 (`root`) läuft nicht allein deshalb in Ring 0. User-/Gruppen-IDs und Linux-Capabilities beeinflussen, welche Operationen der Kernel genehmigt. System Calls, Interrupts und Exceptions bieten kontrollierte Eintrittspunkte zum Kernel; ein System Call erfordert nicht zwangsläufig einen Prozesswechsel.
+
+Die **MMU** übersetzt virtuelle Adressen anhand vom Kernel verwalteter Seitentabellen und setzt Speicherzugriffsrechte durch. Gewöhnliche Linux-Prozesse besitzen eigene virtuelle Adressräume, während Threads eines Prozesses diese in der Regel teilen. Die Zugriffsrechte einzelner virtueller Speicherbereiche können unterschiedlich sein; nicht jeder virtuelle Speicherbereich besitzt zu jedem Zeitpunkt vollständig residente physische Seiten. Im Unterschied zur MPU eines STM32 Cortex-M7 ermöglicht eine MMU insbesondere virtuelle Adressübersetzung und Paging.
+
+**Beobachtung im Linux-Gast:** `/proc/PID/status` stellt unter anderem Prozesszustand, Real-/Effective-/Saved-/Filesystem-UID, Capability-Bitmasken sowie `VmSize` und `VmRSS` bereit. `VmSize` bezeichnet die virtuelle Abbildungsgröße. `VmRSS` ist eine näherungsweise Angabe der residenten Speicherseiten, keine präzise Messung exklusiv belegten physischen RAMs. `/proc/PID/maps` zeigt die Virtual Memory Areas (VMAs) samt Berechtigungen: `r`/`w`/`x` für Lesen/Schreiben/Ausführen und `p`/`s` für private beziehungsweise shared Abbildungen. Eine private Abbildung kann Copy-on-Write verwenden.
+
+Typische Bereiche sind ausführbarer Programmcode (etwa `r-xp`), beschreibbare Daten (`rw-p`), `[heap]` und `[stack]`. Die Kernel-Abbildungen `[vdso]` und `[vvar]` ermöglichen bei bestimmten Operationen die Nutzung bereitgestellter Routinen und Daten aus dem User Space, sodass nicht jede solche Operation einen klassischen System-Call-Übergang benötigt. Die konkrete Belegung und Adressierung unterscheiden sich zwischen Prozessen und Kernel-Konfigurationen.
+
+**Grenzen der Beobachtung:** Eine `/proc/PID/maps`-Ausgabe zeigt virtuelle Zuordnungen und ihre Schutzattribute, aber nicht unmittelbar den gerade ausgeführten CPU-Ring oder den Erfolg beziehungsweise Misserfolg eines absichtlich illegalen Speicherzugriffs. Bei einem `Page Fault` kann der Kernel beispielsweise fehlende Seiten nachladen; nur ein nicht behebbarer Fehler führt typischerweise zu einer Signalzustellung wie `SIGSEGV`. Die Unterscheidung zwischen virtuellen und physischen Adressen sowie die Rechteprüfung auf CPU-Ebene sind Grundlagen für die spätere Treiberentwicklung.
+
+Die konkrete, bereits durchgeführte Prüfung von Kernel, Prozess und VMAs mit Ausgabeauswertung befindet sich ausschließlich in der [Stufe-1-Lab-Anleitung](../labs/01-system-architecture/README.md#11--systemarchitektur-und-schutzgrenzen).
+
+**Referenzen:** [proc_pid_status(5)](https://man7.org/linux/man-pages/man5/proc_pid_status.5.html), [proc_pid_maps(5)](https://man7.org/linux/man-pages/man5/proc_pid_maps.5.html), [Linux-Kernel: procfs](https://docs.kernel.org/filesystems/proc.html), [Linux-Kernel: Virtual Memory](https://docs.kernel.org/mm/index.html).

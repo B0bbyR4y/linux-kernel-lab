@@ -4,7 +4,7 @@ Dieses Lab untersucht den bereits qualifizierten Alpine-/QEMU-Gast. Der [Stufe-1
 
 ## 1.1 – Systemarchitektur und Schutzgrenzen
 
-**Status: in Bearbeitung.** Start-Preflight und erste lesende Shell-Prozess-Inspektion sind erfolgreich durchgeführt. Eine Gegenüberstellung der Prozessidentitäten und eine Prüfung der Schutzgrenzen folgen.
+**Status: abgeschlossen und qualifiziert (11.11.2026).** Die Experimente A (Prozess/VMA), B (Credentials und Dateirechte), C1–C3 (Toolchain, Page-Fault-/SIGSEGV-Test) sowie die abschließende Host-Integritätsprüfung C4.2/C4.3 sind erfolgreich durchgeführt. Die Benutzer-Ausgabe für das gesonderte `umount`/`rmdir` aus C4.1 liegt nicht vor; der QEMU-Stillstand und die fehlerfreie QCOW2-Nachprüfung sind jedoch nachgewiesen.
 
 ### Experiment 1.1-A: Kernel und Prozessadressraum
 
@@ -84,7 +84,7 @@ grep -E '\[(stack|heap|vdso|vvar)\]' \
 
 **Grenzen der Aussage:** Der Shell-Zustand `S` ist plausibel, weil sie auf den Kindprozess `grep` wartet. Die Werte sind Momentaufnahmen. `VmRSS` ist keine exakte Angabe exklusiv belegten RAMs. Die unter `/proc/PID/maps` aufgeführten Speicherregionen und Berechtigungen belegen weder den aktuellen CPU-Ring noch die praktische Wirkung einer verbotenen Speicheroperation. Der `---p`-Heap-Bereich ist nicht zugreifbar, sein konkreter Zweck wurde nicht nachgewiesen. Das Muster des letzten `grep` erfasst `[vvar_vclock]` nicht.
 
-**Offen:** Experimente A, B und C3 fachlich erfolgreich; kontrollierter Unmount/Shutdown, Host-Integritätscheck und Bereinigung sind noch nachzuweisen. Noch kein Abschlussstatus.
+**Abnahme 1.1:** PASS. A und B zeigen Prozessattribute, Zugriffsrechte und VMAs; C3 belegt den durch `mprotect(PROT_NONE)` ausgelösten `SIGSEGV` nur im Kind und einen weiter funktionsfähigen Elternprozess. Host-/Gast-Hash, Basis/Backup, Overlay und Git-Stand wurden geprüft. Kein eigener Kernel-Code und kein Beweis vollständiger Prozessisolation. Der Übergang zu 1.2 erfolgt in einem separaten Chat.
 
 
 
@@ -178,7 +178,7 @@ Zusätzliche Referenzen: [Linux capabilities(7)](https://man7.org/linux/man-page
 
 ### Experiment 1.1-C: Speicherschutz und Prozessisolation
 
-**Status: C1, C2 und C3 einschließlich Target-Lauf erfolgreich validiert; kontrollierter Shutdown, Nachprüfung und Bereinigung stehen noch aus.**
+**Status: C1 bis C3 bestanden, C4.2/C4.3 validiert; Abschnitt 1.1 abgenommen.**
 
 **Ziel:** In einem kontrollierten User-Space-Experiment mit `mmap()` und `mprotect(PROT_NONE)` den Schutz einer Speicherseite untersuchen. Der absichtlich ungültige Zugriff wird später ausschließlich von einem Kindprozess ausgeführt; der Elternprozess soll das Ergebnis mit `waitpid()` und `WIFSIGNALED`/`WTERMSIG` auswerten. Ein erwartetes `SIGSEGV` soll weder den Elternprozess noch den Kernel beenden.
 
@@ -215,7 +215,7 @@ id lab
 
 **Build-Entscheidung:** Kein Compilerpaket im Alpine-Arbeits-Overlay installieren. Zunächst Ubuntu/WSL2-Host-Toolchain prüfen und den kleinen Test auf dem Host möglichst statisch für `x86_64` linken, damit keine unpassende dynamische glibc-/musl-Loader-Abhängigkeit entsteht. Das fertige ELF wird kontrolliert über einen **lesenden** VirtIO-9P-Export bereitgestellt und im QEMU-Gast ausgeführt. Der derzeit dokumentierte QEMU-Standardstart bindet noch keinen 9P-Export ein; eine dafür nötige Gast-Neustartsequenz muss separat geplant und validiert werden. Host-Quellcode liegt später unter `labs/01-system-architecture/src/`, Buildprodukte unter dem ignorierten `build/`.
 
-**Noch nicht im Alpine-Gast validiert:** Transfer über VirtIO-9P, `PROT_NONE`/`SIGSEGV`-Test, Elternprozess-Auswertung und Bereinigung.
+**Geplanter Ablauf (inzwischen validiert):** VirtIO-9P-Transfer, `PROT_NONE`/`SIGSEGV`-Test und Elternprozess-Auswertung wurden in C3 tatsächlich bestätigt; die anschließende Host-Bereinigung wurde in C4.2 validiert.
 
 
 
@@ -267,7 +267,7 @@ EOF
 
 **Validierung C2 (11.11.2026): PASS für die Host-Toolchain.** `uname -m` = `x86_64`; `/usr/bin/gcc`, `/usr/bin/file` und `/usr/bin/readelf` vorhanden; Target `x86_64-linux-gnu`, GCC `15.2.0` (Ubuntu-Paket `15.2.0-16ubuntu1`). `gcc -static` erstellte ein ELF64-x86-64-Executable, `readelf -l` zeigte keinen `INTERP`-Eintrag, der Build war warning-free unter `-Wall -Wextra -Werror`. Die Testausgabe war `PASS: Statisches Testprogramm ausgefuehrt.`, gefolgt von `PASS: Host-Toolchain qualifiziert.`. Der QEMU-Gast wurde zuvor geordnet mit `poweroff` beendet. Dies belegt **noch nicht** die Ausführbarkeit im Alpine-Gast. Der temporäre Preflight-Ordner wurde vom Skript zur Entfernung vorgesehen; ein nachträglicher Dateisystem-Check wurde nicht vorgelegt.
 
-**Schritt C3 – Testprogramm auf Host bauen und kontrolliert im Gast ausführen (noch offen).**
+**Schritt C3 – Testprogramm auf Host bauen und kontrolliert im Gast ausführen (validiert am 11.11.2026).**
 
 Die C-Quelle liegt unter [`src/memory_protection.c`](src/memory_protection.c). Sie reserviert eine anonyme Seite, beschreibt sie und führt `fork()` aus. Nur der **Kindprozess** ruft `mprotect(PROT_NONE)` auf und führt anschließend einen mittels `volatile` erzwungenen Lesezugriff aus. Der Elternprozess erwartet per `waitpid()`/`WIFSIGNALED`/`WTERMSIG` das Signal `SIGSEGV`, liest seine eigene weiterhin zugängliche Seite und gibt nur dann `PASS` zurück. Das Kind unterbindet Core-Dumps mit `setrlimit(RLIMIT_CORE,0)`. Für einen unerwarteten Verlauf liefern Kind beziehungsweise Elternprozess einen Fehlercode. Nur als **User-Space-Programm** ausgeführt; kein eigener Kernel-Code.
 
@@ -366,7 +366,7 @@ Nach erfolgreicher Auswertung den 9P-Mount mit `umount /mnt/labshare` lösen und
 
 **Erwartete Programmmeldungen:** `PARENT: ... initial=0x5a`, `CHILD: ... inherited=0x5a`, `CHILD: PROT_NONE gesetzt...`, `PASS: Kind wurde durch SIGSEGV beendet (Speicherschutz aktiv)`, `PASS: Elternprozess liest weiterhin 0x5a`, `PASS: Gesamttest abgeschlossen`. PIDs und virtuelle Adressen variieren. Ein beobachteter `SIGSEGV` bestätigt einen Schutzverstoß im User Space bei weiterhin funktionsfähigem Elternprozess; er demonstriert nicht die direkte CPU-Ringnummer oder vollständige Isolation gegen sämtliche Angriffe.
 
-**Validierungsstatus:** C1, C2 und C3 wurden erfolgreich ausgeführt (siehe protokollierten Target-Befund unten). Vor endgültiger Abnahme fehlen noch kontrollierter Unmount/Shutdown, Host-Nachprüfung und Bereinigung.
+**Validierungsstatus:** C1, C2 und C3 wurden erfolgreich ausgeführt (siehe Target-Befund unten). Die abschließenden Hostprüfungen und die Bereinigung in C4.2/C4.3 sind ebenfalls bestätigt.
 
 
 **Tatsächlich bestätigte Target-Validierung C3 (11.11.2026): PASS.**
@@ -386,7 +386,96 @@ Nach erfolgreicher Auswertung den 9P-Mount mit `umount /mnt/labshare` lösen und
 
 Der Prozess wurde als `root` gestartet: Dateisystemrechte beziehungsweise Capabilities ersetzen nicht die CPU/MMU-Seitenschutzprüfung. `fork()` erzeugte einen getrennten Prozessadressraum; `mprotect()` änderte ausschließlich die Zugriffsrechte im Kind. Der verbotene Lesezugriff führte zu einer vom Kernel behandelten Ausnahme und zur `SIGSEGV`-Signalzustellung an das Kind. Dies ist ein erfolgreicher Test der Speicherrechte und der Fehlerbegrenzung **in diesem konkreten Fall**, kein genereller Beweis vollständiger Prozessisolation oder eine direkte Messung des CPU-Rings.
 
-**Noch nicht vom Benutzer bestätigt:** `umount /mnt/labshare`, `poweroff`, ausgeschalteter QEMU-Prozess, QCOW2-Prüfung nach der Session, sowie kontrollierte Entfernung des temporären Host-Binärartefakts unter `build/share/stage1-memory/`. Das Referenzbasis-Image und seine Sicherung dürfen nicht verändert oder zurückgesetzt werden.
+**Nachprüfung:** Der QEMU-Prozess wurde nach der Sitzung als beendet nachgewiesen. Eine separate Terminal-Ausgabe von `umount /mnt/labshare` und `rmdir /mnt/labshare` liegt nicht vor; dies wird nicht als gesondert getesteter Teilschritt ausgegeben. Alle überprüften Basis-/Backup-/Overlay-Zustände und die Entfernung des temporären Host-Binärartefakts werden unter C4 dokumentiert. Referenzbasis und Sicherung wurden nicht zurückgesetzt.
+
+
+
+### Experiment 1.1-C4: Gastabschluss, Host-Integrität und Bereinigung
+
+**Ziel:** Nach dem Target-Test den Guest-Shutdown kontrollieren, qualifizierte Basis- und Backup-Dateien unverändert vorfinden, die Overlay-Konsistenz prüfen, ausschließlich das temporäre ELF entfernen und den Git-Checkout synchronisieren.
+
+**C4.1 – Gastabschluss.** Umgebung: Alpine/QEMU · Shell: BusyBox ash · Benutzer: `root` · Arbeitsverzeichnis: beliebig. Voraussetzung: Test C3 abgeschlossen und Auswertung gesichert. Erwartet: 9P-Mount lösen, nur den dafür angelegten leeren Mountpoint entfernen und anschließend geordnet herunterfahren. Es wurde keine gesonderte Ausgabe dieser Befehle übermittelt; der QEMU-Stillstand wurde im folgenden Host-Check bestätigt.
+
+```sh
+umount /mnt/labshare
+rmdir /mnt/labshare
+poweroff
+```
+
+**C4.2 – Host-Integritäts- und Bereinigungsprüfung.** Umgebung: Ubuntu/WSL2 · Shell: Bash · Arbeitsverzeichnis: `~/linux-kernel-lab`. Voraussetzung: QEMU ist beendet, Manifest und Backup aus qualifizierter Stufe 0 sind vorhanden, Test-ELF liegt noch im ignorierten Build-Verzeichnis. Ergebnis: Integrität geprüft, **nur** das bekannte ELF und anschließend sein leerer Testordner entfernt; Basis, Backup und Overlay bleiben unangetastet.
+
+```bash
+cd "$HOME/linux-kernel-lab" || exit 1
+
+(
+    set -euo pipefail
+
+    echo "=== 1. QEMU-Stillstand ==="
+    if pgrep -af '[q]emu-system-x86_64'; then
+        echo "ABBRUCH: QEMU ist noch aktiv."
+        exit 1
+    fi
+
+    echo "=== 2. Referenzbasis und Backup ==="
+    sha256sum -c build/reports/stage0/alpine-base.sha256
+
+    printf '%s  %s\n' \
+        "4e8b4d823498daf13e97ec8738636c537b5a7cee7a8df9bb108d1a127d2709c4" \
+        "build/backups/alpine-base.qcow2" | sha256sum -c
+
+    echo "=== 3. Arbeits-Overlay ==="
+    qemu-img check -f qcow2 build/images/alpine-work.qcow2
+    qemu-img info --backing-chain build/images/alpine-work.qcow2
+
+    echo "=== 4. Test-Binary kontrolliert entfernen ==="
+    BIN="build/share/stage1-memory/memory_protection"
+    [ -f "$BIN" ] && [ ! -L "$BIN" ]
+
+    printf '%s  %s\n' \
+        "91e4252be620101138d9992344c8bd1c397de2865f0742d5050fd52a64cb676c" \
+        "$BIN" | sha256sum -c
+
+    rm -- "$BIN"
+    rmdir build/share/stage1-memory
+
+    echo "=== 5. Git-Status ==="
+    git status --short --branch
+
+    echo "PASS: Nachpruefung und Bereinigung abgeschlossen."
+)
+```
+
+**C4.3 – Git-Fast-Forward nach dokumentierter Targetprüfung.** Umgebung: Ubuntu/WSL2 · Shell: Bash · Arbeitsverzeichnis: `~/linux-kernel-lab`. Voraussetzung: sauberer `main`; keine lokalen Änderungen überschreiben. Ergebnis: neuere Dokumentationscommits synchronisiert, keine uncommitteten Änderungen.
+
+```bash
+cd "$HOME/linux-kernel-lab" || exit 1
+
+(
+    set -euo pipefail
+    [ "$(git branch --show-current)" = "main" ]
+    [ -z "$(git status --porcelain=v1)" ]
+    git fetch origin
+    git merge --ff-only origin/main
+    git status --short --branch
+    git log -1 --format='%h %s'
+)
+```
+
+**Validierung C4.2/C4.3 (11.11.2026): PASS.**
+
+| Teilprüfung | Tatsächlich beobachtet |
+| --- | --- |
+| QEMU | Kein laufender `qemu-system-x86_64`-Prozess gefunden |
+| Basis | `build/images/alpine-base.qcow2: OK` |
+| Backup | `build/backups/alpine-base.qcow2: OK` |
+| Arbeits-Overlay | `No errors were found on the image.`; Backing-Chain Overlay → Basis, beide `corrupt: false` |
+| Overlay-Speicherbelegung | Disk size 4.57 MiB; `66/131072` Cluster zugeordnet, 0.05 % |
+| Temporäres ELF | SHA-256 `91e4252be620101138d9992344c8bd1c397de2865f0742d5050fd52a64cb676c: OK`; gezielte Entfernung verlief ohne Fehler |
+| Git vor Fetch | `## main...origin/main`, keine lokalen Änderungen |
+| Git-Synchronisation | Fast-Forward `211e612..f0a3ed8`, danach `## main...origin/main` |
+| Endmeldung | `PASS: Nachpruefung und Bereinigung abgeschlossen.` |
+
+**Abnahme Stufe 1.1:** Alle für das Lernziel relevanten Tests und die nachgelagerte Integritätsprüfung sind bestanden. Ein einzelnes `umount`/`rmdir`-Protokoll wurde nicht vorgelegt; die Prüfung des abgeschalteten Gasts und der gültigen Images ist jedoch explizit bestätigt. Allgemeine technische Erkenntnisse stehen in [Kapitel 7.1 des Nachschlagewerks](../../docs/Linux_Kernel_und_Embedded_Linux_Nachschlagewerk.md#71-kernel-aufgaben-privilegien-und-virtuelle-adressraeume); konkrete Ausgaben und Verfahren bleiben hier. **Abschnitt 1.1 abgeschlossen.** Als Nächstes folgt in einem neuen Chat **1.2 – System Calls, C-Bibliothek und Kernel-ABI**.
 
 Referenzen: [mprotect(2)](https://man7.org/linux/man-pages/man2/mprotect.2.html), [mmap(2)](https://man7.org/linux/man-pages/man2/mmap.2.html), [wait(2)](https://man7.org/linux/man-pages/man2/wait.2.html).
 

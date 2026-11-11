@@ -35,7 +35,7 @@ Externe Kernel-Quellen werden über eine feste Version oder Commit-ID und gegebe
 | Stufe / Thema | Übungsverzeichnis | Relevante weitere Ablageorte |
 | --- | --- | --- |
 | 0: Entwicklungsumgebung | `labs/00-environment/` (angelegt) | `scripts/`; später `configs/`, `downloads/`, `build/` |
-| 1: Systemarchitektur | `labs/01-system-architecture/` (später) | Fachkapitel im Nachschlagewerk |
+| 1: Systemarchitektur | `labs/01-system-architecture/` (angelegt) | Fachkapitel 7 im Nachschlagewerk; Lab-README und `src/` |
 | 2: Kernel-Build | `labs/02-kernel-build/` (später) | `configs/`, `external/linux/`, `build/kernel/` |
 | 3: Kernel-Modul | `labs/03-kernel-module/` (später) | Zugehörige Build-Dateien und Gastkernel-Build |
 | 4: Character Device | `labs/04-character-device/` (später) | `kernel/`, `userspace/`, bei Bedarf `include/` und `tests/` innerhalb der Übung |

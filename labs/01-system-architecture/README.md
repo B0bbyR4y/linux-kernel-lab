@@ -84,7 +84,7 @@ grep -E '\[(stack|heap|vdso|vvar)\]' \
 
 **Grenzen der Aussage:** Der Shell-Zustand `S` ist plausibel, weil sie auf den Kindprozess `grep` wartet. Die Werte sind Momentaufnahmen. `VmRSS` ist keine exakte Angabe exklusiv belegten RAMs. Die unter `/proc/PID/maps` aufgeführten Speicherregionen und Berechtigungen belegen weder den aktuellen CPU-Ring noch die praktische Wirkung einer verbotenen Speicheroperation. Der `---p`-Heap-Bereich ist nicht zugreifbar, sein konkreter Zweck wurde nicht nachgewiesen. Das Muster des letzten `grep` erfasst `[vvar_vclock]` nicht.
 
-**Offen:** Nach A1/A2 und B1/B2 folgt eine gezielte praktische Untersuchung einer Speicher-Schutzverletzung; danach abschließende Auswertung und Abnahme von 1.1. Noch kein Abschlussstatus.
+**Offen:** Experimente A, B und C3 fachlich erfolgreich; kontrollierter Unmount/Shutdown, Host-Integritätscheck und Bereinigung sind noch nachzuweisen. Noch kein Abschlussstatus.
 
 
 
@@ -178,7 +178,7 @@ Zusätzliche Referenzen: [Linux capabilities(7)](https://man7.org/linux/man-page
 
 ### Experiment 1.1-C: Speicherschutz und Prozessisolation
 
-**Status: Vorprüfung C1 abgeschlossen; Implementierung und Targetvalidierung offen.**
+**Status: C1, C2 und C3 einschließlich Target-Lauf erfolgreich validiert; kontrollierter Shutdown, Nachprüfung und Bereinigung stehen noch aus.**
 
 **Ziel:** In einem kontrollierten User-Space-Experiment mit `mmap()` und `mprotect(PROT_NONE)` den Schutz einer Speicherseite untersuchen. Der absichtlich ungültige Zugriff wird später ausschließlich von einem Kindprozess ausgeführt; der Elternprozess soll das Ergebnis mit `waitpid()` und `WIFSIGNALED`/`WTERMSIG` auswerten. Ein erwartetes `SIGSEGV` soll weder den Elternprozess noch den Kernel beenden.
 
@@ -366,7 +366,27 @@ Nach erfolgreicher Auswertung den 9P-Mount mit `umount /mnt/labshare` lösen und
 
 **Erwartete Programmmeldungen:** `PARENT: ... initial=0x5a`, `CHILD: ... inherited=0x5a`, `CHILD: PROT_NONE gesetzt...`, `PASS: Kind wurde durch SIGSEGV beendet (Speicherschutz aktiv)`, `PASS: Elternprozess liest weiterhin 0x5a`, `PASS: Gesamttest abgeschlossen`. PIDs und virtuelle Adressen variieren. Ein beobachteter `SIGSEGV` bestätigt einen Schutzverstoß im User Space bei weiterhin funktionsfähigem Elternprozess; er demonstriert nicht die direkte CPU-Ringnummer oder vollständige Isolation gegen sämtliche Angriffe.
 
-**Validierungsstatus:** C3 auf dem Alpine-Gast **noch nicht ausgeführt**. Nur die Vorprüfungen C1 und C2 sind bestätigt.
+**Validierungsstatus:** C1, C2 und C3 wurden erfolgreich ausgeführt (siehe protokollierten Target-Befund unten). Vor endgültiger Abnahme fehlen noch kontrollierter Unmount/Shutdown, Host-Nachprüfung und Bereinigung.
+
+
+**Tatsächlich bestätigte Target-Validierung C3 (11.11.2026): PASS.**
+
+| Prüfschritt | Beobachtetes Ergebnis | Bewertung |
+| --- | --- | --- |
+| C3.1 Git | Fast-Forward `259cb9d..211e612`, sauberer Branch `main...origin/main` | PASS |
+| C3.2 Compiler | GCC 15.2.0, `-std=c11 -O2 -Wall -Wextra -Werror -static` ohne Warnungen; ELF64 x86_64 statisch, kein `PT_INTERP` | PASS |
+| C3.2 Binär-Hash | `91e4252be620101138d9992344c8bd1c397de2865f0742d5050fd52a64cb676c` | Erfasst |
+| C3.3 QEMU-Preflight | Basis-SHA-256 `OK`, Overlay → Basis, beide `corrupt: false`; keine QEMU-Instanz zuvor | PASS |
+| C3.3 Start | KVM-Boot, Alpine 3.24.x, Kernel `6.18.58-0-virt`, serieller Root-Login | PASS |
+| C3.4 Mount | `labshare on /mnt/labshare type 9p (ro,relatime,access=client,trans=virtio)` | PASS |
+| C3.4 Transferintegrität | SHA-256 im Gast identisch zum Host | PASS |
+| C3.4 Kindprozess | Eltern-PID 2164, Kind-PID 2165, 4096 Byte, Startwert `0x5a`, Kind nach `PROT_NONE` durch `SIGSEGV` terminiert | PASS |
+| C3.4 Elternprozess | `waitpid()`-Status erfolgreich geprüft, eigener Lesezugriff weiterhin `0x5a` | PASS |
+| C3.4 Gesamttest | `PASS: Gesamttest abgeschlossen` und `PASS: Target-Ausfuehrung erfolgreich.` | PASS |
+
+Der Prozess wurde als `root` gestartet: Dateisystemrechte beziehungsweise Capabilities ersetzen nicht die CPU/MMU-Seitenschutzprüfung. `fork()` erzeugte einen getrennten Prozessadressraum; `mprotect()` änderte ausschließlich die Zugriffsrechte im Kind. Der verbotene Lesezugriff führte zu einer vom Kernel behandelten Ausnahme und zur `SIGSEGV`-Signalzustellung an das Kind. Dies ist ein erfolgreicher Test der Speicherrechte und der Fehlerbegrenzung **in diesem konkreten Fall**, kein genereller Beweis vollständiger Prozessisolation oder eine direkte Messung des CPU-Rings.
+
+**Noch nicht vom Benutzer bestätigt:** `umount /mnt/labshare`, `poweroff`, ausgeschalteter QEMU-Prozess, QCOW2-Prüfung nach der Session, sowie kontrollierte Entfernung des temporären Host-Binärartefakts unter `build/share/stage1-memory/`. Das Referenzbasis-Image und seine Sicherung dürfen nicht verändert oder zurückgesetzt werden.
 
 Referenzen: [mprotect(2)](https://man7.org/linux/man-pages/man2/mprotect.2.html), [mmap(2)](https://man7.org/linux/man-pages/man2/mmap.2.html), [wait(2)](https://man7.org/linux/man-pages/man2/wait.2.html).
 

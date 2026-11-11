@@ -215,7 +215,158 @@ id lab
 
 **Build-Entscheidung:** Kein Compilerpaket im Alpine-Arbeits-Overlay installieren. Zunächst Ubuntu/WSL2-Host-Toolchain prüfen und den kleinen Test auf dem Host möglichst statisch für `x86_64` linken, damit keine unpassende dynamische glibc-/musl-Loader-Abhängigkeit entsteht. Das fertige ELF wird kontrolliert über einen **lesenden** VirtIO-9P-Export bereitgestellt und im QEMU-Gast ausgeführt. Der derzeit dokumentierte QEMU-Standardstart bindet noch keinen 9P-Export ein; eine dafür nötige Gast-Neustartsequenz muss separat geplant und validiert werden. Host-Quellcode liegt später unter `labs/01-system-architecture/src/`, Buildprodukte unter dem ignorierten `build/`.
 
-**Noch nicht validiert:** Host-Compiler und statischer Link, Transfer, `PROT_NONE`/`SIGSEGV`-Test, Elternprozess-Auswertung und Bereinigung.
+**Noch nicht im Alpine-Gast validiert:** Transfer über VirtIO-9P, `PROT_NONE`/`SIGSEGV`-Test, Elternprozess-Auswertung und Bereinigung.
+
+
+
+**Schritt C2 – statische Host-Toolchain qualifizieren.** Umgebung: Ubuntu 26.04 / WSL2 · Shell: Bash · Arbeitsverzeichnis: `~/linux-kernel-lab`. Voraussetzungen: GCC, `file` und `readelf`; vorhandenes ignoriertes `build/`. Erwartet: statisch gelinktes x86_64-ELF ohne `PT_INTERP`, erfolgreich ausführbar. Temporäres Verzeichnis wird mittels Shell-`trap` bereinigt; keine Git-Änderungen.
+
+```bash
+cd "$HOME/linux-kernel-lab" || exit 1
+
+(
+    set -euo pipefail
+
+    echo "=== 1. Host-Architektur ==="
+    uname -m
+
+    echo "=== 2. Build-Werkzeuge ==="
+    command -v gcc
+    command -v file
+    command -v readelf
+    gcc -dumpmachine
+    gcc --version | head -n 1
+
+    echo "=== 3. Statischer Link-Test ==="
+    TMP="$(mktemp -d "$PWD/build/.static-preflight.XXXXXXXX")"
+    trap 'rm -f -- "$TMP/probe.c" "$TMP/probe"; rmdir -- "$TMP"' EXIT
+    cat > "$TMP/probe.c" <<'EOF'
+#include <stdio.h>
+int main(void)
+{
+    puts("PASS: Statisches Testprogramm ausgefuehrt.");
+    return 0;
+}
+EOF
+    gcc -O2 -Wall -Wextra -Werror -static \
+        -o "$TMP/probe" "$TMP/probe.c"
+
+    echo "=== 4. ELF-Analyse ==="
+    file "$TMP/probe"
+    if readelf -l "$TMP/probe" | grep -q 'INTERP'; then
+        echo "FAIL: Dynamischer ELF-Interpreter vorhanden."
+        exit 1
+    fi
+    echo "PASS: Kein dynamischer ELF-Interpreter."
+
+    echo "=== 5. Ausfuehrung ==="
+    "$TMP/probe"
+    echo "PASS: Host-Toolchain qualifiziert."
+)
+```
+
+**Validierung C2 (11.11.2026): PASS für die Host-Toolchain.** `uname -m` = `x86_64`; `/usr/bin/gcc`, `/usr/bin/file` und `/usr/bin/readelf` vorhanden; Target `x86_64-linux-gnu`, GCC `15.2.0` (Ubuntu-Paket `15.2.0-16ubuntu1`). `gcc -static` erstellte ein ELF64-x86-64-Executable, `readelf -l` zeigte keinen `INTERP`-Eintrag, der Build war warning-free unter `-Wall -Wextra -Werror`. Die Testausgabe war `PASS: Statisches Testprogramm ausgefuehrt.`, gefolgt von `PASS: Host-Toolchain qualifiziert.`. Der QEMU-Gast wurde zuvor geordnet mit `poweroff` beendet. Dies belegt **noch nicht** die Ausführbarkeit im Alpine-Gast. Der temporäre Preflight-Ordner wurde vom Skript zur Entfernung vorgesehen; ein nachträglicher Dateisystem-Check wurde nicht vorgelegt.
+
+**Schritt C3 – Testprogramm auf Host bauen und kontrolliert im Gast ausführen (noch offen).**
+
+Die C-Quelle liegt unter [`src/memory_protection.c`](src/memory_protection.c). Sie reserviert eine anonyme Seite, beschreibt sie und führt `fork()` aus. Nur der **Kindprozess** ruft `mprotect(PROT_NONE)` auf und führt anschließend einen mittels `volatile` erzwungenen Lesezugriff aus. Der Elternprozess erwartet per `waitpid()`/`WIFSIGNALED`/`WTERMSIG` das Signal `SIGSEGV`, liest seine eigene weiterhin zugängliche Seite und gibt nur dann `PASS` zurück. Das Kind unterbindet Core-Dumps mit `setrlimit(RLIMIT_CORE,0)`. Für einen unerwarteten Verlauf liefern Kind beziehungsweise Elternprozess einen Fehlercode. Nur als **User-Space-Programm** ausgeführt; kein eigener Kernel-Code.
+
+**Host-Synchronisation.** Umgebung: Ubuntu/WSL2 · Bash · Arbeitsverzeichnis: Repository-Wurzel. Voraussetzung: Gast heruntergefahren, lokaler Branch `main`, sauberer Git-Arbeitsbaum. Keine eigenen Änderungen überschreiben; Fast-Forward nur unter diesen Bedingungen.
+
+```bash
+cd "$HOME/linux-kernel-lab" || exit 1
+(
+    set -euo pipefail
+    [ "$(git branch --show-current)" = "main" ]
+    [ -z "$(git status --porcelain=v1)" ] || {
+        echo "ABBRUCH: ungesicherte lokale Änderungen."
+        exit 1
+    }
+    git fetch origin
+    git merge --ff-only origin/main
+    test -f labs/01-system-architecture/src/memory_protection.c
+    git status --short --branch
+    git log -1 --format='%h %s'
+)
+```
+
+**Build im getrennten Host-Export.** Umgebung: Ubuntu/WSL2 · Bash · Arbeitsverzeichnis: Repository-Wurzel. Voraussetzung: erfolgreicher Fast-Forward, `gcc`/`file`/`readelf` aus C2. Erzeugte Datei: ausschließlich `build/share/stage1-memory/memory_protection` (über `.gitignore` ignoriert). Erwartet: statisches x86_64-Executable ohne dynamischen Interpreter.
+
+```bash
+cd "$HOME/linux-kernel-lab" || exit 1
+(
+    set -euo pipefail
+    mkdir -p build/share/stage1-memory
+    gcc -std=c11 -O2 -Wall -Wextra -Werror -static \
+        -o build/share/stage1-memory/memory_protection \
+        labs/01-system-architecture/src/memory_protection.c
+    file build/share/stage1-memory/memory_protection
+    if readelf -l build/share/stage1-memory/memory_protection | grep -q INTERP; then
+        echo "FAIL: ELF enthaelt einen dynamischen Interpreter."
+        exit 1
+    fi
+    sha256sum build/share/stage1-memory/memory_protection
+    echo "PASS: Statisches Target-ELF erstellt."
+)
+```
+
+**Gast-Start-Preflight und Boot.** Umgebung: Ubuntu/WSL2 · Bash · Arbeitsverzeichnis: Repository-Wurzel. Voraussetzungen: QEMU vollständig gestoppt; das Binary erstellt; Basis-Manifest verfügbar. Exportiert **nur das Testverzeichnis** und ausschließlich lesend. QEMU verwendet weiterhin nur das Arbeits-Overlay, nicht das Basisimage. Erwartet: Alpine-Start mit Login über `ttyS0`.
+
+```bash
+cd "$HOME/linux-kernel-lab" || exit 1
+(
+    set -euo pipefail
+    if pgrep -af '[q]emu-system-x86_64'; then
+        echo "ABBRUCH: QEMU laeuft."
+        exit 1
+    fi
+    test -x build/share/stage1-memory/memory_protection
+    sha256sum -c build/reports/stage0/alpine-base.sha256
+    qemu-img info --backing-chain build/images/alpine-work.qcow2
+    echo "PASS: QEMU-Preflight."
+)
+```
+
+Nur bei `PASS`:
+
+```bash
+cd "$HOME/linux-kernel-lab" || exit 1
+qemu-system-x86_64 \
+    -machine q35 \
+    -accel kvm \
+    -m 512M \
+    -smp 1 \
+    -boot c \
+    -drive file="$HOME/linux-kernel-lab/build/images/alpine-work.qcow2",format=qcow2,if=virtio \
+    -nic user,model=virtio-net-pci \
+    -virtfs local,path="$HOME/linux-kernel-lab/build/share/stage1-memory",mount_tag=labshare,security_model=none,readonly=on \
+    -nographic
+```
+
+**Mount und Target-Lauf.** Umgebung: Alpine/QEMU · Shell: ash · Benutzer: `root` · Arbeitsverzeichnis: beliebig. Erwartet: 9P-Export als `ro`, Kopie in ein temporäres Gastverzeichnis, Kindprozess stirbt durch `SIGSEGV`, Elternprozess läuft unverändert weiter und Gesamttest gibt Exitcode `0` zurück. Der Binärinhalt wird nicht vom Gast in den Host-Export zurückgeschrieben.
+
+```sh
+mkdir -p /mnt/labshare
+mount -t 9p -o trans=virtio,version=9p2000.L,ro labshare /mnt/labshare
+mount | grep labshare
+sha256sum /mnt/labshare/memory_protection
+
+(
+    set -eu
+    WORK="$(mktemp -d /tmp/stage1-memory.XXXXXXXX)"
+    trap 'rm -f -- "$WORK/memory_protection"; rmdir -- "$WORK"' EXIT
+    cp /mnt/labshare/memory_protection "$WORK/memory_protection"
+    chmod 0700 "$WORK/memory_protection"
+    "$WORK/memory_protection"
+    echo "PASS: Target-Ausfuehrung erfolgreich."
+)
+```
+
+Nach erfolgreicher Auswertung den 9P-Mount mit `umount /mnt/labshare` lösen und den Gast regulär mit `poweroff` herunterfahren. **Bis zur gemeinsamen Auswertung bleiben Binary und Host-Export erhalten**; anschließend kontrollierte Bereinigung unter `build/share/stage1-memory/`, keine zusätzlichen Artefakte behalten.
+
+**Erwartete Programmmeldungen:** `PARENT: ... initial=0x5a`, `CHILD: ... inherited=0x5a`, `CHILD: PROT_NONE gesetzt...`, `PASS: Kind wurde durch SIGSEGV beendet (Speicherschutz aktiv)`, `PASS: Elternprozess liest weiterhin 0x5a`, `PASS: Gesamttest abgeschlossen`. PIDs und virtuelle Adressen variieren. Ein beobachteter `SIGSEGV` bestätigt einen Schutzverstoß im User Space bei weiterhin funktionsfähigem Elternprozess; er demonstriert nicht die direkte CPU-Ringnummer oder vollständige Isolation gegen sämtliche Angriffe.
+
+**Validierungsstatus:** C3 auf dem Alpine-Gast **noch nicht ausgeführt**. Nur die Vorprüfungen C1 und C2 sind bestätigt.
 
 Referenzen: [mprotect(2)](https://man7.org/linux/man-pages/man2/mprotect.2.html), [mmap(2)](https://man7.org/linux/man-pages/man2/mmap.2.html), [wait(2)](https://man7.org/linux/man-pages/man2/wait.2.html).
 

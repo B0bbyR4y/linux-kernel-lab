@@ -84,6 +84,94 @@ grep -E '\[(stack|heap|vdso|vvar)\]' \
 
 **Grenzen der Aussage:** Der Shell-Zustand `S` ist plausibel, weil sie auf den Kindprozess `grep` wartet. Die Werte sind Momentaufnahmen. `VmRSS` ist keine exakte Angabe exklusiv belegten RAMs. Die unter `/proc/PID/maps` aufgeführten Speicherregionen und Berechtigungen belegen weder den aktuellen CPU-Ring noch die praktische Wirkung einer verbotenen Speicheroperation. Der `---p`-Heap-Bereich ist nicht zugreifbar, sein konkreter Zweck wurde nicht nachgewiesen. Das Muster des letzten `grep` erfasst `[vvar_vclock]` nicht.
 
-**Offen:** Vergleich privilegierter/unprivilegierter Prozessattribute und Untersuchung der Schutzgrenzen; abschließende Auswertung und Abnahme von 1.1. Kein vorzeitiger Abschlussstatus.
+**Offen:** Nach A1/A2 und B1/B2 folgt eine gezielte praktische Untersuchung einer Speicher-Schutzverletzung; danach abschließende Auswertung und Abnahme von 1.1. Noch kein Abschlussstatus.
+
+
+
+### Experiment 1.1-B: Root- und Lab-Prozess vergleichen
+
+**Ziel:** Im bestehenden Alpine-Gast Unterschiede zwischen Root- und unprivilegierten User-Space-Prozessen in Credentials, Capabilities, Prozesshierarchie, Dateiberechtigungen und Speicherabbildungen sichtbar machen. Die Untersuchung ist lesend und erstellt keine Dateien. Sie beweist noch keinen hardwareseitigen MMU-Schutzverstoß.
+
+**Schritt B1 – Root-Shell.** Umgebung: Alpine/QEMU · Shell: BusyBox ash · Benutzer: `root` · Arbeitsverzeichnis: beliebig. Voraussetzungen: laufende und angemeldete Gast-VM; lokaler Benutzer `lab` aus Stufe 0 vorhanden. Erwartet: UID 0, effektive Capabilities, lesbare `/etc/shadow` aufgrund Dateieigentümers und Rechte, `lab` als lokaler Benutzer vorhanden.
+
+```sh
+printf '\n=== Root-Identitaet ===\n'
+id
+
+printf '\n=== Root-Prozessattribute ===\n'
+printf 'Shell-PID: %s\n' "$$"
+grep -E \
+    '^(Name|State|Pid|PPid|Uid|Gid|CapEff|VmSize|VmRSS|Threads):' \
+    "/proc/$$/status"
+
+printf '\n=== Root-Speicherabbildungen ===\n'
+head -n 5 "/proc/$$/maps"
+
+printf '\n=== Dateiberechtigungstest ===\n'
+ls -l /etc/shadow
+if [ -r /etc/shadow ]; then
+    echo "Root: Datei lesbar"
+else
+    echo "Root: Datei nicht lesbar"
+fi
+
+printf '\n=== Benutzer lab vorhanden? ===\n'
+id lab
+```
+
+**Schritt B2 – Lab-Shell.** Umgebung: Alpine/QEMU · Shell: BusyBox ash · Benutzer: `lab` nach `su - lab` · Arbeitsverzeichnis: Benutzer-Home. Voraussetzung: erfolgreicher Schritt B1 und existierender Benutzer `lab`. Erwartet: nichtzero UID/GID, keine effektiven Capabilities, kein Lesezugriff auf `/etc/shadow` und eigene Speichermappings. Die Shell wird danach mit `exit` verlassen.
+
+```sh
+su - lab
+```
+
+In der nun gestarteten `lab`-Shell:
+
+```sh
+printf '\n=== Lab-Identitaet ===\n'
+id
+
+printf '\n=== Lab-Prozessattribute ===\n'
+printf 'Shell-PID: %s\n' "$$"
+grep -E \
+    '^(Name|State|Pid|PPid|Uid|Gid|CapEff|VmSize|VmRSS|Threads):' \
+    "/proc/$$/status"
+
+printf '\n=== Lab-Speicherabbildungen ===\n'
+head -n 5 "/proc/$$/maps"
+
+printf '\n=== Dateiberechtigungstest ===\n'
+if [ -r /etc/shadow ]; then
+    echo "Lab: Datei lesbar"
+else
+    echo "Lab: Zugriff nicht erlaubt"
+fi
+```
+
+Zur Root-Shell zurückkehren:
+
+```sh
+exit
+```
+
+**Validierung B1/B2 (11.11.2026): PASS.**
+
+| Beobachtung | Root-Shell | Lab-Shell |
+| --- | --- | --- |
+| Prozess | PID `2132`, PPID `2130` | PID `2152`, PPID `2132` |
+| UID/GID | viermal `0` / viermal `0` | viermal `1000` / viermal `1000` |
+| Zustand/Threads | `S (sleeping)` / 1 | `S (sleeping)` / 1 |
+| `CapEff` | `000001ffffffffff` | `0000000000000000` |
+| `VmSize` / `VmRSS` | 1728 / 1380 kB | 1720 / 1276 kB |
+| Ausführbares BusyBox-`r-xp`-Mapping | `55c30be50000-55c30bee9000` | `563fd30f3000-563fd318c000` |
+| `/etc/shadow` lesbar nach Shell-Test | Ja | Nein |
+
+`/etc/shadow` besaß `-rw-r-----` (`0640`) mit Eigentümer `root` und Gruppe `shadow`. `root` kann die Datei bereits aufgrund der Eigentümer-Leseberechtigung lesen; das Experiment **beweist keine Verwendung von** `CAP_DAC_OVERRIDE`. Der Benutzer `lab` ist nicht Mitglied der Gruppe `shadow` und besitzt kein sonstiges Leserecht. Der beobachtete Shell-Test `[ -r /etc/shadow ]` prüft die Zugriffsmöglichkeit, nicht den Inhalt der Passwortdatei. Es wurde kein Dateiinhalt ausgelesen.
+
+**Interpretation:** Die unterschiedliche PPID/PID-Beziehung bestätigt die Lab-Shell als Kind der Root-Shell. Beide verwenden dieselbe BusyBox-Datei mit denselben Abbildungs-Offsets/Berechtigungen, aber unterschiedlichen virtuellen Startadressen. Dies ist mit getrennten Adressräumen und ASLR vereinbar; die Beobachtung für sich beweist weder vollständige Prozessisolation noch einen MMU-Fault. Der Unterschied bei `VmSize`/`VmRSS` ist nur eine Momentaufnahme, kein Beleg für generellen Mehrverbrauch privilegierter Prozesse. Die beiden UID/Credential-Profile begründen auch keinen CPU-Ringwechsel: Normaler Shell-Code läuft weiterhin als User-Space-Code.
+
+**Nächste Prüfung:** Technisch kontrollierte Leseoperation gegen eine ausdrücklich unzugängliche Speicherabbildung (etwa `mmap` mit `PROT_NONE`) in einem isolierten User-Space-Testprozess und Prüfung, ob `SIGSEGV` auftritt, ohne andere Prozesse zu beeinträchtigen. Werkzeugverfügbarkeit vorher prüfen.
+
+Zusätzliche Referenzen: [Linux capabilities(7)](https://man7.org/linux/man-pages/man7/capabilities.7.html), [mmap(2)](https://man7.org/linux/man-pages/man2/mmap.2.html), [mprotect(2)](https://man7.org/linux/man-pages/man2/mprotect.2.html).
 
 Referenzen: [proc_pid_status(5)](https://man7.org/linux/man-pages/man5/proc_pid_status.5.html), [proc_pid_maps(5)](https://man7.org/linux/man-pages/man5/proc_pid_maps.5.html), [Kernel-Dokumentation zu procfs](https://docs.kernel.org/filesystems/proc.html).

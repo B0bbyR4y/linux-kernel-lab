@@ -174,4 +174,49 @@ exit
 
 Zusätzliche Referenzen: [Linux capabilities(7)](https://man7.org/linux/man-pages/man7/capabilities.7.html), [mmap(2)](https://man7.org/linux/man-pages/man2/mmap.2.html), [mprotect(2)](https://man7.org/linux/man-pages/man2/mprotect.2.html).
 
+
+
+### Experiment 1.1-C: Speicherschutz und Prozessisolation
+
+**Status: Vorprüfung C1 abgeschlossen; Implementierung und Targetvalidierung offen.**
+
+**Ziel:** In einem kontrollierten User-Space-Experiment mit `mmap()` und `mprotect(PROT_NONE)` den Schutz einer Speicherseite untersuchen. Der absichtlich ungültige Zugriff wird später ausschließlich von einem Kindprozess ausgeführt; der Elternprozess soll das Ergebnis mit `waitpid()` und `WIFSIGNALED`/`WTERMSIG` auswerten. Ein erwartetes `SIGSEGV` soll weder den Elternprozess noch den Kernel beenden.
+
+**Schritt C1 – Ist-Zustand im Gast.** Umgebung: Alpine/QEMU · Shell: BusyBox ash · Benutzer: `root` · Arbeitsverzeichnis: beliebig. Voraussetzung: laufender Gast. Erwartet: Architektur und vorhandene Compiler werden ermittelt, Core-Dump-Limit und Testbenutzer geprüft. Dateien und Git-Änderungen: keine.
+
+```sh
+printf '\n=== Architektur ===\n'
+uname -m
+
+printf '\n=== C-Compiler ===\n'
+for tool in cc gcc clang; do
+    if command -v "$tool" >/dev/null 2>&1; then
+        printf '%s: %s\n' "$tool" "$(command -v "$tool")"
+    else
+        printf '%s: nicht vorhanden\n' "$tool"
+    fi
+done
+
+printf '\n=== Core-Dump-Limit ===\n'
+ulimit -c
+
+printf '\n=== Testbenutzer ===\n'
+id lab
+```
+
+**Validierung C1 (11.11.2026): PASS als Werkzeug-Vorprüfung.**
+
+| Prüfaspekt | Tatsächliche Ausgabe / Bewertung |
+| --- | --- |
+| CPU-Architektur | `x86_64` – passend zur geplanten Host-Zielarchitektur |
+| `cc`, `gcc`, `clang` | Alle drei nicht vorhanden; auf diesem schlanken Gast erwartbar und kein Fehler |
+| `ulimit -c` | `0`; keine Core-Dateien unter diesem Limit, aber `SIGSEGV` bleibt möglich |
+| Benutzer `lab` | Vorhanden; UID/GID 1000 und bekannte zusätzlichen Gruppen |
+
+**Build-Entscheidung:** Kein Compilerpaket im Alpine-Arbeits-Overlay installieren. Zunächst Ubuntu/WSL2-Host-Toolchain prüfen und den kleinen Test auf dem Host möglichst statisch für `x86_64` linken, damit keine unpassende dynamische glibc-/musl-Loader-Abhängigkeit entsteht. Das fertige ELF wird kontrolliert über einen **lesenden** VirtIO-9P-Export bereitgestellt und im QEMU-Gast ausgeführt. Der derzeit dokumentierte QEMU-Standardstart bindet noch keinen 9P-Export ein; eine dafür nötige Gast-Neustartsequenz muss separat geplant und validiert werden. Host-Quellcode liegt später unter `labs/01-system-architecture/src/`, Buildprodukte unter dem ignorierten `build/`.
+
+**Noch nicht validiert:** Host-Compiler und statischer Link, Transfer, `PROT_NONE`/`SIGSEGV`-Test, Elternprozess-Auswertung und Bereinigung.
+
+Referenzen: [mprotect(2)](https://man7.org/linux/man-pages/man2/mprotect.2.html), [mmap(2)](https://man7.org/linux/man-pages/man2/mmap.2.html), [wait(2)](https://man7.org/linux/man-pages/man2/wait.2.html).
+
 Referenzen: [proc_pid_status(5)](https://man7.org/linux/man-pages/man5/proc_pid_status.5.html), [proc_pid_maps(5)](https://man7.org/linux/man-pages/man5/proc_pid_maps.5.html), [Kernel-Dokumentation zu procfs](https://docs.kernel.org/filesystems/proc.html).
